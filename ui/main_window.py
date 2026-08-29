@@ -9,10 +9,8 @@ from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from core.storage import StorageManager
 from core.backup import create_backup, AutoBackupManager
 from core.utils import hash_password, verify_password
-from core.audit import AuditManager
 from .customers_view import CustomersView
 from .customer_ledger import CustomerLedgerView
-from .dashboard import DashboardView
 from .dialogs import AppLockDialog
 from .suppliers_view import SuppliersView
 from .supplier_ledger import SupplierLedgerView
@@ -26,11 +24,11 @@ class MainWindow(QMainWindow):
     Main application window
     """
     
-    def __init__(self):
+    def __init__(self, storage: StorageManager = None):
         super().__init__()
-        
-        # مدير التخزين
-        self.storage = StorageManager()
+
+        # مدير التخزين — يمرَّر من main.py بعد تشغيل الترحيل
+        self.storage = storage if storage is not None else StorageManager()
         
         # مدير النسخ الاحتياطي التلقائي
         auto_backup_interval = self.storage.get_setting("auto_backup_interval", 200)
@@ -81,18 +79,13 @@ class MainWindow(QMainWindow):
     
     def setup_ui(self):
         """إعداد الواجهة"""
-        # مدير التدقيق
-        self.audit_manager = AuditManager(self.storage.data_folder)
-        
         # الويدجت المركزي (Stack Widget للتبديل بين الصفحات)
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
         
-        # صفحة لوحة المعلومات
-        self.dashboard_view = DashboardView(self.storage, self)
-        self.dashboard_view.back_requested.connect(self.show_customers_view)
-        self.dashboard_view.customer_selected.connect(self.show_customer_ledger)
-        self.stack.addWidget(self.dashboard_view)
+        # لوحة المعلومات تُنشأ عند أول استخدام (استيراد كسول).
+        # matplotlib ثقيل، وغيابه يجب ألا يمنع التطبيق كله من العمل.
+        self.dashboard_view = None
         
         # صفحة قائمة العملاء
         self.customers_view = CustomersView(self.storage, self)
@@ -281,7 +274,24 @@ class MainWindow(QMainWindow):
             self.show_customers_view()
     
     def show_dashboard(self):
-        """عرض لوحة المعلومات"""
+        """عرض لوحة المعلومات (تُنشأ عند أول استدعاء)"""
+        if self.dashboard_view is None:
+            try:
+                from .dashboard import DashboardView
+            except ImportError as e:
+                QMessageBox.warning(
+                    self, "لوحة المعلومات غير متاحة",
+                    "مكتبة الرسوم البيانية غير منصّبة.\n\n"
+                    f"{e}\n\n"
+                    "بقية التطبيق يعمل بشكل طبيعي."
+                )
+                return
+
+            self.dashboard_view = DashboardView(self.storage, self)
+            self.dashboard_view.back_requested.connect(self.show_customers_view)
+            self.dashboard_view.customer_selected.connect(self.show_customer_ledger)
+            self.stack.addWidget(self.dashboard_view)
+
         self.dashboard_view.refresh()
         self.stack.setCurrentWidget(self.dashboard_view)
         self.statusBar().showMessage("لوحة المعلومات - Ctrl+H للعودة للعملاء")

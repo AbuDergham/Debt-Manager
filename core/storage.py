@@ -13,6 +13,8 @@ from .models import (
     SupplierPayment, SupplierSummary, Check
 )
 from .utils import ensure_data_folder
+from .audit import AuditManager, ActionType, EntityType
+from .backup import create_backup
 
 
 def atomic_write_json(path: Path, data: Any) -> None:
@@ -98,6 +100,34 @@ def read_json(path: Path, default: Any = None) -> Any:
         raise ValueError(f"Invalid JSON in {path}: {e}")
 
 
+def atomic_write_jsonl(path: Path, records: List[Dict[str, Any]]) -> None:
+    """
+    كتابة ملف JSONL كاملاً بشكل ذري
+    Atomic full-file JSONL write
+
+    تُستخدم عند التعديل أو الحذف: JSONL صيغة append-only، فلا يمكن تعديل
+    سطر واحد في مكانه — يجب إعادة كتابة الملف كله.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, temp_path = tempfile.mkstemp(dir=path.parent, suffix='.tmp', text=True)
+
+    try:
+        # os.fdopen يتملّك الواصف ويغلقه — لا نفتح المسار مرة ثانية
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            for record in records:
+                f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
+
+
 def read_jsonl(path: Path) -> List[Dict[str, Any]]:
     """
     قراءة جميع السجلات من ملف JSONL
@@ -150,7 +180,31 @@ class StorageManager:
         self.supplier_payments_file = self.data_folder / "supplier_payments.jsonl"
         self.supplier_summaries_file = self.data_folder / "supplier_summaries.json"
         self.checks_file = self.data_folder / "checks.json"
-    
+
+        # سجل التدقيق — يُسجَّل تلقائياً داخل دوال التعديل نفسها،
+        # فيستحيل أن تنسى الواجهة استدعاءه
+        self.audit = AuditManager(self.data_folder)
+
+    def _log(
+        self,
+        action: ActionType,
+        entity_type: EntityType,
+        entity_id: str,
+        old_data: Optional[dict] = None,
+        new_data: Optional[dict] = None,
+    ) -> None:
+        """
+        تسجيل عملية في سجل التدقيق
+        Log an operation to the audit trail
+
+        فشل التسجيل لا يوقف العملية التجارية أبداً — لا نخسر تسجيل بيعة
+        لأن ملف السجل تعذّرت الكتابة فيه.
+        """
+        try:
+            self.audit.log_action(action, entity_type, entity_id, old_data, new_data)
+        except Exception:
+            pass
+
     # ============ إدارة العملاء - Customer Management ============
     
     def load_customers(self) -> List[Customer]:
@@ -182,6 +236,7 @@ class StorageManager:
         
         customers.append(customer)
         self.save_customers(customers)
+        self._log("create", "customer", customer.id, new_data=customer.to_dict())
     
     def get_customer(self, customer_id: str) -> Optional[Customer]:
         """
@@ -219,6 +274,7 @@ class StorageManager:
         
         # إضافة الإدخال
         atomic_append_jsonl(self.entries_file, entry.to_dict())
+        self._log("create", "entry", entry.id, new_data=entry.to_dict())
     
     def get_customer_entries(self, customer_id: str) -> List[Entry]:
         """
@@ -335,6 +391,7 @@ class StorageManager:
             raise ValueError(f"Supplier with ID '{supplier.id}' already exists")
         suppliers.append(supplier)
         self.save_suppliers(suppliers)
+        self._log("create", "supplier", supplier.id, new_data=supplier.to_dict())
     
     def get_supplier(self, supplier_id: str) -> Optional[Supplier]:
         """
@@ -373,6 +430,7 @@ class StorageManager:
         orders = self.load_purchase_orders()
         orders.append(order)
         self.save_purchase_orders(orders)
+        self._log("create", "purchase_order", order.id, new_data=order.to_dict())
     
     def get_purchase_order(self, order_id: str) -> Optional[PurchaseOrder]:
         """
@@ -401,6 +459,7 @@ class StorageManager:
         Add new purchase item
         """
         atomic_append_jsonl(self.purchase_items_file, item.to_dict())
+        self._log("create", "purchase_item", item.id, new_data=item.to_dict())
     
     def get_order_items(self, order_id: str) -> List[PurchaseItem]:
         """
@@ -434,6 +493,7 @@ class StorageManager:
         Add new supplier payment
         """
         atomic_append_jsonl(self.supplier_payments_file, payment.to_dict())
+        self._log("create", "supplier_payment", payment.id, new_data=payment.to_dict())
     
     def get_supplier_payments(self, supplier_id: str) -> List[SupplierPayment]:
         """
@@ -501,6 +561,7 @@ class StorageManager:
         checks = self.load_checks()
         checks.append(check)
         self.save_checks(checks)
+        self._log("create", "check", check.id, new_data=check.to_dict())
     
     def update_check_status(self, check_id: str, new_status: str) -> bool:
         """
@@ -539,3 +600,361 @@ class StorageManager:
             if c.id == check_id:
                 return c
         return None
+
+    # ============ CRUD الحركات - Entry CRUD ============
+
+    def save_entries(self, entries: List[Entry]) -> None:
+        """
+        حفظ جميع الحركات (إعادة كتابة ذرّية للملف كاملاً)
+        Save all entries — full atomic rewrite
+        """
+        atomic_write_jsonl(self.entries_file, [e.to_dict() for e in entries])
+
+    def get_entry(self, entry_id: str) -> Optional[Entry]:
+        """الحصول على حركة بواسطة المعرّف - Get entry by ID"""
+        for entry in self.load_entries():
+            if entry.id == entry_id:
+                return entry
+        return None
+
+    def update_entry(self, entry: Entry) -> None:
+        """
+        تحديث حركة موجودة (البحث بالمعرّف)
+        Update an existing entry, matched by ID
+
+        Raises:
+            KeyError: إذا لم توجد حركة بهذا المعرّف
+            ValueError: إذا كانت البيانات غير صالحة
+        """
+        entry.validate()
+
+        entries = self.load_entries()
+        for i, existing in enumerate(entries):
+            if existing.id == entry.id:
+                old_data = existing.to_dict()
+                entries[i] = entry
+                self.save_entries(entries)
+                self._log("update", "entry", entry.id,
+                          old_data=old_data, new_data=entry.to_dict())
+                return
+
+        raise KeyError(f"Entry not found: {entry.id}")
+
+    def delete_entry(self, entry_id: str) -> Entry:
+        """
+        حذف حركة (البحث بالمعرّف)
+        Delete an entry, matched by ID
+
+        Returns:
+            الحركة المحذوفة
+
+        Raises:
+            KeyError: إذا لم توجد حركة بهذا المعرّف
+        """
+        entries = self.load_entries()
+        for i, existing in enumerate(entries):
+            if existing.id == entry_id:
+                removed = entries.pop(i)
+                self.save_entries(entries)
+                self._log("delete", "entry", entry_id, old_data=removed.to_dict())
+                return removed
+
+        raise KeyError(f"Entry not found: {entry_id}")
+
+    # ============ CRUD العملاء - Customer CRUD ============
+
+    def update_customer(self, customer: Customer) -> None:
+        """
+        تحديث بيانات عميل موجود
+        Update an existing customer
+
+        Raises:
+            KeyError: إذا لم يوجد عميل بهذا المعرّف
+        """
+        customers = self.load_customers()
+        for i, existing in enumerate(customers):
+            if existing.id == customer.id:
+                old_data = existing.to_dict()
+                customers[i] = customer
+                self.save_customers(customers)
+                self._log("update", "customer", customer.id,
+                          old_data=old_data, new_data=customer.to_dict())
+                return
+
+        raise KeyError(f"Customer not found: {customer.id}")
+
+    def delete_customer(self, customer_id: str) -> tuple[Customer, int, Path]:
+        """
+        حذف عميل مع جميع حركاته
+        Delete a customer and all their entries
+
+        تُنشأ نسخة احتياطية تلقائياً قبل أي حذف — الحذف لا رجعة فيه.
+        بدون الحذف المتتالي تبقى الحركات يتيمة، وقد يرث عميل جديد بنفس
+        المعرّف ديون القديم.
+
+        Returns:
+            (العميل المحذوف، عدد الحركات المحذوفة، مسار النسخة الاحتياطية)
+
+        Raises:
+            KeyError: إذا لم يوجد عميل بهذا المعرّف
+        """
+        customers = self.load_customers()
+        customer = next((c for c in customers if c.id == customer_id), None)
+        if customer is None:
+            raise KeyError(f"Customer not found: {customer_id}")
+
+        backup_path = create_backup(data_folder=self.data_folder, prefix="pre-delete")
+
+        self.save_customers([c for c in customers if c.id != customer_id])
+
+        entries = self.load_entries()
+        remaining = [e for e in entries if e.customer_id != customer_id]
+        deleted_count = len(entries) - len(remaining)
+        self.save_entries(remaining)
+
+        summaries = self.load_summaries()
+        summaries.pop(customer_id, None)
+        self.save_summaries(summaries)
+
+        self._log("delete", "customer", customer_id, old_data=customer.to_dict())
+
+        return customer, deleted_count, backup_path
+
+    # ============ CRUD الموردين - Supplier CRUD ============
+
+    def update_supplier(self, supplier: Supplier) -> None:
+        """
+        تحديث بيانات مورد موجود
+        Update an existing supplier
+
+        Raises:
+            KeyError: إذا لم يوجد مورد بهذا المعرّف
+        """
+        suppliers = self.load_suppliers()
+        for i, existing in enumerate(suppliers):
+            if existing.id == supplier.id:
+                old_data = existing.to_dict()
+                suppliers[i] = supplier
+                self.save_suppliers(suppliers)
+                self._log("update", "supplier", supplier.id,
+                          old_data=old_data, new_data=supplier.to_dict())
+                return
+
+        raise KeyError(f"Supplier not found: {supplier.id}")
+
+    def delete_supplier(self, supplier_id: str) -> tuple[Supplier, Dict[str, int], Path]:
+        """
+        حذف مورد مع بنود شرائه ودفعاته وملخّصه
+        Delete a supplier along with their purchase items, payments and summary
+
+        تُنشأ نسخة احتياطية تلقائياً قبل الحذف.
+
+        Returns:
+            (المورد المحذوف، {"items": عدد، "payments": عدد}، مسار النسخة)
+
+        Raises:
+            KeyError: إذا لم يوجد مورد بهذا المعرّف
+        """
+        suppliers = self.load_suppliers()
+        supplier = next((s for s in suppliers if s.id == supplier_id), None)
+        if supplier is None:
+            raise KeyError(f"Supplier not found: {supplier_id}")
+
+        backup_path = create_backup(data_folder=self.data_folder, prefix="pre-delete")
+
+        self.save_suppliers([s for s in suppliers if s.id != supplier_id])
+
+        items = self.load_purchase_items()
+        kept_items = [i for i in items if i.supplier_id != supplier_id]
+        deleted_items = len(items) - len(kept_items)
+        self.save_purchase_items(kept_items)
+
+        payments = self.load_supplier_payments()
+        kept_payments = [p for p in payments if p.supplier_id != supplier_id]
+        deleted_payments = len(payments) - len(kept_payments)
+        self.save_supplier_payments(kept_payments)
+
+        summaries = self.load_supplier_summaries()
+        summaries.pop(supplier_id, None)
+        self.save_supplier_summaries(summaries)
+
+        self._log("delete", "supplier", supplier_id, old_data=supplier.to_dict())
+
+        return supplier, {"items": deleted_items, "payments": deleted_payments}, backup_path
+
+    # ============ CRUD بنود الشراء - Purchase Item CRUD ============
+
+    def save_purchase_items(self, items: List[PurchaseItem]) -> None:
+        """حفظ جميع بنود الشراء (إعادة كتابة ذرّية)"""
+        atomic_write_jsonl(self.purchase_items_file, [i.to_dict() for i in items])
+
+    def get_purchase_item(self, item_id: str) -> Optional[PurchaseItem]:
+        """الحصول على بند شراء بواسطة المعرّف"""
+        for item in self.load_purchase_items():
+            if item.id == item_id:
+                return item
+        return None
+
+    def update_purchase_item(self, item: PurchaseItem) -> None:
+        """
+        تحديث بند شراء موجود (البحث بالمعرّف)
+
+        Raises:
+            KeyError: إذا لم يوجد بند بهذا المعرّف
+        """
+        items = self.load_purchase_items()
+        for i, existing in enumerate(items):
+            if existing.id == item.id:
+                old_data = existing.to_dict()
+                items[i] = item
+                self.save_purchase_items(items)
+                self._log("update", "purchase_item", item.id,
+                          old_data=old_data, new_data=item.to_dict())
+                return
+
+        raise KeyError(f"Purchase item not found: {item.id}")
+
+    def delete_purchase_item(self, item_id: str) -> PurchaseItem:
+        """
+        حذف بند شراء (البحث بالمعرّف)
+
+        Returns:
+            البند المحذوف
+
+        Raises:
+            KeyError: إذا لم يوجد بند بهذا المعرّف
+        """
+        items = self.load_purchase_items()
+        for i, existing in enumerate(items):
+            if existing.id == item_id:
+                removed = items.pop(i)
+                self.save_purchase_items(items)
+                self._log("delete", "purchase_item", item_id, old_data=removed.to_dict())
+                return removed
+
+        raise KeyError(f"Purchase item not found: {item_id}")
+
+    # ============ CRUD فواتير الشراء - Purchase Order CRUD ============
+
+    def update_purchase_order(self, order: PurchaseOrder) -> None:
+        """
+        تحديث فاتورة شراء موجودة
+
+        Raises:
+            KeyError: إذا لم توجد فاتورة بهذا المعرّف
+        """
+        orders = self.load_purchase_orders()
+        for i, existing in enumerate(orders):
+            if existing.id == order.id:
+                old_data = existing.to_dict()
+                orders[i] = order
+                self.save_purchase_orders(orders)
+                self._log("update", "purchase_order", order.id,
+                          old_data=old_data, new_data=order.to_dict())
+                return
+
+        raise KeyError(f"Purchase order not found: {order.id}")
+
+    def delete_purchase_order(self, order_id: str) -> tuple[PurchaseOrder, int, Path]:
+        """
+        حذف فاتورة شراء مع كل بنودها
+        Delete a purchase order along with all its items
+
+        Returns:
+            (الفاتورة المحذوفة، عدد البنود المحذوفة، مسار النسخة الاحتياطية)
+
+        Raises:
+            KeyError: إذا لم توجد فاتورة بهذا المعرّف
+        """
+        orders = self.load_purchase_orders()
+        order = next((o for o in orders if o.id == order_id), None)
+        if order is None:
+            raise KeyError(f"Purchase order not found: {order_id}")
+
+        backup_path = create_backup(data_folder=self.data_folder, prefix="pre-delete")
+
+        self.save_purchase_orders([o for o in orders if o.id != order_id])
+
+        items = self.load_purchase_items()
+        kept = [i for i in items if i.order_id != order_id]
+        deleted_count = len(items) - len(kept)
+        self.save_purchase_items(kept)
+
+        self._log("delete", "purchase_order", order_id, old_data=order.to_dict())
+
+        return order, deleted_count, backup_path
+
+    # ============ CRUD دفعات الموردين - Supplier Payment CRUD ============
+
+    def save_supplier_payments(self, payments: List[SupplierPayment]) -> None:
+        """حفظ جميع دفعات الموردين (إعادة كتابة ذرّية)"""
+        atomic_write_jsonl(self.supplier_payments_file, [p.to_dict() for p in payments])
+
+    def get_supplier_payment(self, payment_id: str) -> Optional[SupplierPayment]:
+        """الحصول على دفعة مورد بواسطة المعرّف"""
+        for payment in self.load_supplier_payments():
+            if payment.id == payment_id:
+                return payment
+        return None
+
+    def delete_supplier_payment(self, payment_id: str) -> SupplierPayment:
+        """
+        حذف دفعة مورد
+
+        Returns:
+            الدفعة المحذوفة
+
+        Raises:
+            KeyError: إذا لم توجد دفعة بهذا المعرّف
+        """
+        payments = self.load_supplier_payments()
+        for i, existing in enumerate(payments):
+            if existing.id == payment_id:
+                removed = payments.pop(i)
+                self.save_supplier_payments(payments)
+                self._log("delete", "supplier_payment", payment_id,
+                          old_data=removed.to_dict())
+                return removed
+
+        raise KeyError(f"Supplier payment not found: {payment_id}")
+
+    # ============ CRUD الشيكات - Check CRUD ============
+
+    def update_check(self, check: Check) -> None:
+        """
+        تحديث شيك موجود (كل الحقول، لا الحالة وحدها)
+
+        Raises:
+            KeyError: إذا لم يوجد شيك بهذا المعرّف
+        """
+        checks = self.load_checks()
+        for i, existing in enumerate(checks):
+            if existing.id == check.id:
+                old_data = existing.to_dict()
+                checks[i] = check
+                self.save_checks(checks)
+                self._log("update", "check", check.id,
+                          old_data=old_data, new_data=check.to_dict())
+                return
+
+        raise KeyError(f"Check not found: {check.id}")
+
+    def delete_check(self, check_id: str) -> Check:
+        """
+        حذف شيك
+
+        Returns:
+            الشيك المحذوف
+
+        Raises:
+            KeyError: إذا لم يوجد شيك بهذا المعرّف
+        """
+        checks = self.load_checks()
+        for i, existing in enumerate(checks):
+            if existing.id == check_id:
+                removed = checks.pop(i)
+                self.save_checks(checks)
+                self._log("delete", "check", check_id, old_data=removed.to_dict())
+                return removed
+
+        raise KeyError(f"Check not found: {check_id}")

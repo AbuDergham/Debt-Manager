@@ -2,10 +2,22 @@
 نماذج البيانات للتطبيق
 Data models for the debt management application
 """
-from dataclasses import dataclass, asdict
+import uuid
+from dataclasses import dataclass, asdict, field
 from decimal import Decimal
 from datetime import datetime
 from typing import Literal
+
+
+def new_id() -> str:
+    """
+    توليد معرّف فريد لسجل جديد
+    Generate a unique record ID
+
+    يُستخدم للسجلات المخزّنة في ملفات JSONL (الحركات وبنود الشراء)، حيث
+    لا يمكن تمييز سجلين متطابقين في كل حقولهما بدونه.
+    """
+    return uuid.uuid4().hex
 
 # أنواع الإدخالات المسموحة
 EntryType = Literal["purchase", "payment"]
@@ -59,7 +71,10 @@ class Entry:
     desc: str
     pay_method: PaymentMethod
     notes: str = ""  # ملاحظات داخلية لا تظهر للعميل
-    
+    # المعرّف آخر الحقول لأن notes قبله له قيمة افتراضية (قيد dataclass).
+    # كل استدعاءات Entry(...) في المشروع تستخدم keyword arguments.
+    id: str = field(default_factory=new_id)
+
     @property
     def amount_decimal(self) -> Decimal:
         """الحصول على المبلغ كـ Decimal - Get amount as Decimal"""
@@ -89,6 +104,7 @@ class Entry:
     def to_dict(self):
         """تحويل إلى قاموس - Convert to dictionary"""
         return {
+            'id': self.id,
             'customer_id': self.customer_id,
             'type': self.type,
             'amount': self.amount,
@@ -108,7 +124,8 @@ class Entry:
             date=data['date'],
             desc=data['desc'],
             pay_method=data['pay_method'],
-            notes=data.get('notes', '')
+            notes=data.get('notes', ''),
+            id=data.get('id') or new_id()
         )
     
     def validate(self) -> bool:
@@ -253,6 +270,7 @@ class PurchaseItem:
     payment_method: PurchasePaymentMethod  # آجل / نقدي
     total: str              # المجموع
     notes: str = ""
+    id: str = field(default_factory=new_id)  # معرّف فريد للبند
     
     @property
     def quantity_decimal(self) -> Decimal:
@@ -296,6 +314,7 @@ class PurchaseItem:
     def to_dict(self):
         """تحويل إلى قاموس"""
         return {
+            'id': self.id,
             'order_id': self.order_id,
             'supplier_id': self.supplier_id,
             'item_name': self.item_name,
@@ -321,7 +340,8 @@ class PurchaseItem:
             packaging=data.get('packaging', 'municipal'),
             payment_method=data.get('payment_method', 'credit'),
             total=data.get('total', '0'),
-            notes=data.get('notes', '')
+            notes=data.get('notes', ''),
+            id=data.get('id') or new_id()
         )
 
 

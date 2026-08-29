@@ -10,7 +10,11 @@ import json
 
 # أنواع العمليات
 ActionType = Literal["create", "update", "delete"]
-EntityType = Literal["customer", "entry"]
+EntityType = Literal[
+    "customer", "entry",
+    "supplier", "purchase_order", "purchase_item",
+    "supplier_payment", "check",
+]
 
 
 @dataclass
@@ -157,7 +161,12 @@ class AuditManager:
         }
         entity_names = {
             "customer": "عميل",
-            "entry": "إدخال"
+            "entry": "حركة",
+            "supplier": "مورد",
+            "purchase_order": "فاتورة شراء",
+            "purchase_item": "بند شراء",
+            "supplier_payment": "دفعة مورد",
+            "check": "شيك",
         }
         
         return {
