@@ -1,0 +1,507 @@
+"""
+النافذة الرئيسية للتطبيق
+Main application window
+"""
+from PySide6.QtWidgets import (
+    QMainWindow, QStackedWidget, QMessageBox, QInputDialog
+)
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from core.storage import StorageManager
+from core.backup import create_backup, AutoBackupManager
+from core.utils import hash_password, verify_password
+from core.audit import AuditManager
+from .customers_view import CustomersView
+from .customer_ledger import CustomerLedgerView
+from .dashboard import DashboardView
+from .dialogs import AppLockDialog
+
+
+class MainWindow(QMainWindow):
+    """
+    النافذة الرئيسية
+    Main application window
+    """
+    
+    def __init__(self):
+        super().__init__()
+        
+        # مدير التخزين
+        self.storage = StorageManager()
+        
+        # مدير النسخ الاحتياطي التلقائي
+        auto_backup_interval = self.storage.get_setting("auto_backup_interval", 200)
+        self.backup_manager = AutoBackupManager(interval=auto_backup_interval)
+        
+        # التحقق من قفل التطبيق
+        if not self.check_app_lock():
+            self.close()
+            return
+        
+        # إعداد النافذة
+        self.setWindowTitle("إدارة ديون العملاء - نظام محل الخضار والفواكه")
+        self.setGeometry(100, 100, 1200, 800)
+        
+        # إعداد الواجهة
+        self.setup_ui()
+        self.setup_menu()
+        
+        # تطبيق الTheme
+        self.apply_theme()
+        
+        # عرض صفحة العملاء
+        self.show_customers_view()
+    
+    def check_app_lock(self) -> bool:
+        """
+        التحقق من قفل التطبيق
+        Check app lock
+        
+        Returns:
+            True إذا تم فتح القفل بنجاح أو لا يوجد قفل
+        """
+        password_hash = self.storage.get_setting("password_hash")
+        
+        if password_hash:
+            # يوجد قفل، طلب كلمة المرور
+            dialog = AppLockDialog(mode="verify", parent=self)
+            if dialog.exec():
+                if verify_password(dialog.password, password_hash):
+                    return True
+                else:
+                    QMessageBox.warning(self, "خطأ", "كلمة مرور خاطئة")
+                    return False
+            else:
+                return False
+        
+        return True
+    
+    def setup_ui(self):
+        """إعداد الواجهة"""
+        # مدير التدقيق
+        self.audit_manager = AuditManager(self.storage.data_folder)
+        
+        # الويدجت المركزي (Stack Widget للتبديل بين الصفحات)
+        self.stack = QStackedWidget()
+        self.setCentralWidget(self.stack)
+        
+        # صفحة لوحة المعلومات
+        self.dashboard_view = DashboardView(self.storage, self)
+        self.dashboard_view.back_requested.connect(self.show_customers_view)
+        self.dashboard_view.customer_selected.connect(self.show_customer_ledger)
+        self.stack.addWidget(self.dashboard_view)
+        
+        # صفحة قائمة العملاء
+        self.customers_view = CustomersView(self.storage, self)
+        self.customers_view.customer_selected.connect(self.show_customer_ledger)
+        self.stack.addWidget(self.customers_view)
+        
+        # صفحة دفتر العميل
+        self.ledger_view = CustomerLedgerView(self.storage, self)
+        self.ledger_view.back_requested.connect(self.show_customers_view)
+        self.stack.addWidget(self.ledger_view)
+        
+        # شريط الحالة
+        self.statusBar().showMessage("جاهز")
+        
+        # إعداد اختصارات لوحة المفاتيح
+        self.setup_shortcuts()
+    
+    def setup_menu(self):
+        """إعداد شريط القوائم"""
+        menubar = self.menuBar()
+        
+        # قائمة ملف
+        file_menu = menubar.addMenu("ملف")
+        
+        # نسخ احتياطي
+        backup_action = QAction("إنشاء نسخة احتياطية", self)
+        backup_action.triggered.connect(self.create_manual_backup)
+        file_menu.addAction(backup_action)
+        
+        # تصدير جميع البيانات
+        export_action = QAction("تصدير جميع البيانات", self)
+        export_action.triggered.connect(self.export_all_data)
+        file_menu.addAction(export_action)
+        
+        file_menu.addSeparator()
+        
+        # خروج
+        exit_action = QAction("خروج", self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+        
+        # قائمة العرض (جديدة)
+        view_menu = menubar.addMenu("عرض")
+        
+        # لوحة المعلومات
+        dashboard_action = QAction("📊 لوحة المعلومات", self)
+        dashboard_action.setShortcut(QKeySequence("Ctrl+D"))
+        dashboard_action.triggered.connect(self.show_dashboard)
+        view_menu.addAction(dashboard_action)
+        
+        # قائمة العملاء
+        customers_action = QAction("👥 قائمة العملاء", self)
+        customers_action.setShortcut(QKeySequence("Ctrl+H"))
+        customers_action.triggered.connect(self.show_customers_view)
+        view_menu.addAction(customers_action)
+        
+        # قائمة الإعدادات
+        settings_menu = menubar.addMenu("الإعدادات")
+        
+        # تبديل الTheme
+        theme_action = QAction("تبديل الوضع (فاتح/داكن)", self)
+        theme_action.triggered.connect(self.toggle_theme)
+        settings_menu.addAction(theme_action)
+        
+        settings_menu.addSeparator()
+        
+        # تفعيل/إلغاء قفل التطبيق
+        lock_action = QAction("تفعيل قفل التطبيق", self)
+        lock_action.triggered.connect(self.setup_app_lock)
+        settings_menu.addAction(lock_action)
+        
+        unlock_action = QAction("إلغاء قفل التطبيق", self)
+        unlock_action.triggered.connect(self.remove_app_lock)
+        settings_menu.addAction(unlock_action)
+        
+        settings_menu.addSeparator()
+        
+        # إعدادات النسخ الاحتياطي
+        backup_settings_action = QAction("إعدادات النسخ الاحتياطي", self)
+        backup_settings_action.triggered.connect(self.configure_backup)
+        settings_menu.addAction(backup_settings_action)
+        
+        # قائمة المساعدة
+        help_menu = menubar.addMenu("مساعدة")
+        
+        # حول
+        about_action = QAction("حول التطبيق", self)
+        about_action.triggered.connect(self.show_about)
+        help_menu.addAction(about_action)
+    
+    def setup_shortcuts(self):
+        """إعداد اختصارات لوحة المفاتيح"""
+        # Ctrl+D - لوحة المعلومات
+        QShortcut(QKeySequence("Ctrl+D"), self, self.show_dashboard)
+        
+        # Ctrl+H - قائمة العملاء (Home)
+        QShortcut(QKeySequence("Ctrl+H"), self, self.show_customers_view)
+        
+        # Ctrl+N - إضافة عميل جديد
+        QShortcut(QKeySequence("Ctrl+N"), self, self.add_new_customer)
+        
+        # Ctrl+F - البحث الشامل
+        QShortcut(QKeySequence("Ctrl+F"), self, self.show_search_dialog)
+        
+        # Escape - رجوع
+        QShortcut(QKeySequence("Escape"), self, self.go_back)
+    
+    def show_search_dialog(self):
+        """عرض نافذة البحث الشامل"""
+        from .search_dialog import SearchDialog
+        dialog = SearchDialog(self.storage, self)
+        dialog.entry_selected.connect(self.navigate_to_entry)
+        dialog.exec()
+    
+    def navigate_to_entry(self, customer_id: str, entry_date: str):
+        """الانتقال إلى إدخال محدد"""
+        self.show_customer_ledger(customer_id)
+    
+    def add_new_customer(self):
+        """إضافة عميل جديد"""
+        self.show_customers_view()
+        self.customers_view.add_customer()
+    
+    def go_back(self):
+        """رجوع للصفحة السابقة"""
+        current = self.stack.currentWidget()
+        if current == self.ledger_view:
+            self.show_customers_view()
+        elif current == self.dashboard_view:
+            self.show_customers_view()
+    
+    def show_dashboard(self):
+        """عرض لوحة المعلومات"""
+        self.dashboard_view.refresh()
+        self.stack.setCurrentWidget(self.dashboard_view)
+        self.statusBar().showMessage("لوحة المعلومات - Ctrl+H للعودة للعملاء")
+    
+    def show_customers_view(self):
+        """عرض صفحة قائمة العملاء"""
+        self.customers_view.refresh()
+        self.stack.setCurrentWidget(self.customers_view)
+        self.statusBar().showMessage("قائمة العملاء")
+    
+    def show_customer_ledger(self, customer_id: str):
+        """عرض صفحة دفتر العميل"""
+        self.ledger_view.set_customer(customer_id)
+        self.stack.setCurrentWidget(self.ledger_view)
+        self.statusBar().showMessage(f"دفتر العميل")
+        
+        # التحقق من ضرورة النسخ الاحتياطي التلقائي
+        self.check_auto_backup()
+    
+    def check_auto_backup(self):
+        """التحقق من ضرورة النسخ الاحتياطي التلقائي"""
+        current_count = self.storage.get_total_entries_count()
+        
+        if self.backup_manager.should_backup(current_count):
+            reply = QMessageBox.question(
+                self, "نسخ احتياطي تلقائي",
+                f"تم الوصول إلى {self.backup_manager.interval} إدخال جديد.\n"
+                "هل تريد إنشاء نسخة احتياطية الآن؟",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                backup_path = self.backup_manager.perform_backup()
+                if backup_path:
+                    self.backup_manager.update_last_backup_count(current_count)
+                    QMessageBox.information(
+                        self, "نجح",
+                        f"تم إنشاء النسخة الاحتياطية بنجاح:\n{backup_path}"
+                    )
+            else:
+                # تحديث العداد حتى لا يُطلب مرة أخرى
+                self.backup_manager.update_last_backup_count(current_count)
+    
+    def create_manual_backup(self):
+        """إنشاء نسخة احتياطية يدوية"""
+        try:
+            backup_path = create_backup()
+            QMessageBox.information(
+                self, "نجح",
+                f"تم إنشاء النسخة الاحتياطية بنجاح:\n{backup_path}"
+            )
+            self.statusBar().showMessage(f"تم إنشاء نسخة احتياطية: {backup_path.name}", 5000)
+        except Exception as e:
+            QMessageBox.warning(self, "خطأ", f"فشل في إنشاء النسخة الاحتياطية: {str(e)}")
+    
+    def export_all_data(self):
+        """تصدير جميع البيانات"""
+        from PySide6.QtWidgets import QFileDialog
+        from core.backup import export_all_data
+        
+        path, _ = QFileDialog.getSaveFileName(
+            self, "تصدير جميع البيانات", "", "ZIP Files (*.zip)"
+        )
+        
+        if path:
+            try:
+                export_path = export_all_data(path)
+                QMessageBox.information(
+                    self, "نجح",
+                    f"تم تصدير جميع البيانات بنجاح:\n{export_path}"
+                )
+            except Exception as e:
+                QMessageBox.warning(self, "خطأ", f"فشل في التصدير: {str(e)}")
+    
+    def toggle_theme(self):
+        """تبديل الوضع بين فاتح وداكن"""
+        current_theme = self.storage.get_setting("theme", "light")
+        new_theme = "dark" if current_theme == "light" else "light"
+        
+        self.storage.update_setting("theme", new_theme)
+        self.apply_theme()
+        
+        theme_name = "الداكن" if new_theme == "dark" else "الفاتح"
+        self.statusBar().showMessage(f"تم التبديل إلى الوضع {theme_name}", 3000)
+    
+    def apply_theme(self):
+        """تطبيق الوضع (فاتح أو داكن)"""
+        theme = self.storage.get_setting("theme", "light")
+        
+        if theme == "dark":
+            # وضع داكن
+            self.setStyleSheet("""
+                QMainWindow, QWidget {
+                    background-color: #2b2b2b;
+                    color: #ffffff;
+                }
+                QTableWidget {
+                    background-color: #3b3b3b;
+                    alternate-background-color: #454545;
+                    color: #ffffff;
+                    gridline-color: #555555;
+                }
+                QHeaderView::section {
+                    background-color: #505050;
+                    color: #ffffff;
+                    border: 1px solid #555555;
+                    padding: 5px;
+                }
+                QPushButton {
+                    background-color: #0d6efd;
+                    color: #ffffff;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #0b5ed7;
+                }
+                QLineEdit, QComboBox, QDateTimeEdit {
+                    background-color: #3b3b3b;
+                    color: #ffffff;
+                    border: 1px solid #555555;
+                    padding: 5px;
+                    border-radius: 3px;
+                }
+                QGroupBox {
+                    border: 2px solid #555555;
+                    border-radius: 5px;
+                    margin-top: 10px;
+                    font-weight: bold;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 10px;
+                    padding: 0 5px;
+                }
+            """)
+        else:
+            # وضع فاتح مشرق
+            self.setStyleSheet("""
+                QMainWindow, QWidget {
+                    background-color: #f0f7ff;
+                    color: #1e293b;
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                }
+                QTableWidget {
+                    background-color: #ffffff;
+                    alternate-background-color: #f0f9ff;
+                    gridline-color: #e2e8f0;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 8px;
+                }
+                QHeaderView::section {
+                    background-color: #3b82f6;
+                    color: #ffffff;
+                    border: none;
+                    padding: 8px 5px;
+                    font-weight: bold;
+                }
+                QPushButton {
+                    background-color: #3b82f6;
+                    color: #ffffff;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 6px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #2563eb;
+                }
+                QPushButton:pressed {
+                    background-color: #1d4ed8;
+                }
+                QLineEdit, QComboBox, QDateTimeEdit {
+                    background-color: #ffffff;
+                    border: 2px solid #e2e8f0;
+                    padding: 8px;
+                    border-radius: 6px;
+                }
+                QLineEdit:focus, QComboBox:focus, QDateTimeEdit:focus {
+                    border: 2px solid #3b82f6;
+                }
+                QGroupBox {
+                    border: 2px solid #3b82f6;
+                    border-radius: 8px;
+                    margin-top: 12px;
+                    font-weight: bold;
+                    background-color: #ffffff;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 12px;
+                    padding: 0 8px;
+                    color: #3b82f6;
+                }
+                QScrollArea {
+                    border: none;
+                    background-color: transparent;
+                }
+                QMenuBar {
+                    background-color: #3b82f6;
+                    color: #ffffff;
+                    padding: 4px;
+                }
+                QMenuBar::item:selected {
+                    background-color: #2563eb;
+                }
+                QMenu {
+                    background-color: #ffffff;
+                    border: 1px solid #e2e8f0;
+                }
+                QMenu::item:selected {
+                    background-color: #3b82f6;
+                    color: #ffffff;
+                }
+                QStatusBar {
+                    background-color: #3b82f6;
+                    color: #ffffff;
+                }
+            """)
+    
+    def setup_app_lock(self):
+        """إعداد قفل التطبيق"""
+        dialog = AppLockDialog(mode="setup", parent=self)
+        if dialog.exec():
+            password_hash = hash_password(dialog.password)
+            self.storage.update_setting("password_hash", password_hash)
+            QMessageBox.information(
+                self, "نجح",
+                "تم تفعيل قفل التطبيق بنجاح.\n"
+                "سيُطلب منك إدخال كلمة المرور عند فتح التطبيق."
+            )
+    
+    def remove_app_lock(self):
+        """إلغاء قفل التطبيق"""
+        password_hash = self.storage.get_setting("password_hash")
+        
+        if not password_hash:
+            QMessageBox.information(self, "معلومة", "قفل التطبيق غير مفعّل")
+            return
+        
+        # التحقق من كلمة المرور الحالية
+        dialog = AppLockDialog(mode="verify", parent=self)
+        if dialog.exec():
+            if verify_password(dialog.password, password_hash):
+                self.storage.update_setting("password_hash", None)
+                QMessageBox.information(self, "نجح", "تم إلغاء قفل التطبيق بنجاح")
+            else:
+                QMessageBox.warning(self, "خطأ", "كلمة مرور خاطئة")
+    
+    def configure_backup(self):
+        """إعدادات النسخ الاحتياطي"""
+        current_interval = self.storage.get_setting("auto_backup_interval", 200)
+        
+        interval, ok = QInputDialog.getInt(
+            self, "إعدادات النسخ الاحتياطي",
+            "عدد الإدخالات بين كل نسخة احتياطية:",
+            current_interval, 10, 10000, 10
+        )
+        
+        if ok:
+            self.storage.update_setting("auto_backup_interval", interval)
+            self.backup_manager.interval = interval
+            QMessageBox.information(
+                self, "نجح",
+                f"تم تحديث إعدادات النسخ الاحتياطي.\n"
+                f"سيتم إنشاء نسخة احتياطية كل {interval} إدخال."
+            )
+    
+    def show_about(self):
+        """عرض معلومات عن التطبيق"""
+        QMessageBox.about(
+            self, "حول التطبيق",
+            "<h2>إدارة ديون العملاء</h2>"
+            "<p>نظام لإدارة ديون عملاء محل الخضار والفواكه</p>"
+            "<p><b>الإصدار:</b> 2.0.0</p>"
+            "<p><b>المطور:</b> AbuDergham - 0569337729</p>"
+            "<hr>"
+            "<p>التخزين: ملفات JSON/JSONL محلية</p>"
+            "<p>النسخ الاحتياطي: تلقائي ويدوي</p>"
+            "<p>التصدير: CSV, JSON, PDF</p>"
+        )

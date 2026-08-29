@@ -1,0 +1,40 @@
+# Ignore Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Ignore virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Ignore PyInstaller build output (but keep the build config)
+build/
+dist/
+*.spec
+!Debt-Manager.spec
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Keep data folder structure but ignore actual data
+data/*.json
+data/*.jsonl
+data/backups/*.zip
+
+# Ignore exported ledgers (may contain real customer data)
+/*.pdf
+/*.xlsx
+/*.csv
+
+# Ignore logs
+*.log
