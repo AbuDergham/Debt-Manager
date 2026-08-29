@@ -7,7 +7,11 @@ import os
 import tempfile
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from .models import Customer, Entry, Summary
+from .models import (
+    Customer, Entry, Summary,
+    Supplier, PurchaseOrder, PurchaseItem,
+    SupplierPayment, SupplierSummary, Check
+)
 from .utils import get_data_folder, ensure_data_folder
 
 
@@ -290,3 +294,248 @@ class StorageManager:
         Get total number of entries
         """
         return len(self.load_entries())
+    
+    # ============ إدارة الموردين - Supplier Management ============
+    
+    def load_suppliers(self) -> List[Supplier]:
+        """
+        تحميل جميع الموردين
+        Load all suppliers
+        """
+        suppliers_file = self.data_folder / "suppliers.json"
+        data = read_json(suppliers_file, default=[])
+        return [Supplier.from_dict(s) for s in data]
+    
+    def save_suppliers(self, suppliers: List[Supplier]) -> None:
+        """
+        حفظ جميع الموردين
+        Save all suppliers
+        """
+        suppliers_file = self.data_folder / "suppliers.json"
+        data = [s.to_dict() for s in suppliers]
+        atomic_write_json(suppliers_file, data)
+    
+    def add_supplier(self, supplier: Supplier) -> None:
+        """
+        إضافة مورد جديد
+        Add new supplier
+        """
+        suppliers = self.load_suppliers()
+        if any(s.id == supplier.id for s in suppliers):
+            raise ValueError(f"Supplier with ID '{supplier.id}' already exists")
+        suppliers.append(supplier)
+        self.save_suppliers(suppliers)
+    
+    def get_supplier(self, supplier_id: str) -> Optional[Supplier]:
+        """
+        الحصول على مورد بواسطة المعرف
+        Get supplier by ID
+        """
+        suppliers = self.load_suppliers()
+        for s in suppliers:
+            if s.id == supplier_id:
+                return s
+        return None
+    
+    # ============ إدارة الطلبيات - Purchase Order Management ============
+    
+    def load_purchase_orders(self) -> List[PurchaseOrder]:
+        """
+        تحميل جميع الطلبيات
+        Load all purchase orders
+        """
+        orders_file = self.data_folder / "purchase_orders.json"
+        data = read_json(orders_file, default=[])
+        return [PurchaseOrder.from_dict(o) for o in data]
+    
+    def save_purchase_orders(self, orders: List[PurchaseOrder]) -> None:
+        """
+        حفظ جميع الطلبيات
+        Save all purchase orders
+        """
+        orders_file = self.data_folder / "purchase_orders.json"
+        data = [o.to_dict() for o in orders]
+        atomic_write_json(orders_file, data)
+    
+    def add_purchase_order(self, order: PurchaseOrder) -> None:
+        """
+        إضافة طلبية جديدة
+        Add new purchase order
+        """
+        orders = self.load_purchase_orders()
+        orders.append(order)
+        self.save_purchase_orders(orders)
+    
+    def get_purchase_order(self, order_id: str) -> Optional[PurchaseOrder]:
+        """
+        الحصول على طلبية بواسطة المعرف
+        Get purchase order by ID
+        """
+        orders = self.load_purchase_orders()
+        for o in orders:
+            if o.id == order_id:
+                return o
+        return None
+    
+    # ============ إدارة بنود الشراء - Purchase Items Management ============
+    
+    def load_purchase_items(self) -> List[PurchaseItem]:
+        """
+        تحميل جميع بنود الشراء
+        Load all purchase items
+        """
+        items_file = self.data_folder / "purchase_items.jsonl"
+        data = read_jsonl(items_file)
+        return [PurchaseItem.from_dict(item) for item in data]
+    
+    def add_purchase_item(self, item: PurchaseItem) -> None:
+        """
+        إضافة بند شراء جديد
+        Add new purchase item
+        """
+        items_file = self.data_folder / "purchase_items.jsonl"
+        atomic_append_jsonl(items_file, item.to_dict())
+    
+    def get_order_items(self, order_id: str) -> List[PurchaseItem]:
+        """
+        الحصول على بنود طلبية معينة
+        Get items for a specific order
+        """
+        all_items = self.load_purchase_items()
+        return [item for item in all_items if item.order_id == order_id]
+    
+    def get_supplier_purchase_items(self, supplier_id: str) -> List[PurchaseItem]:
+        """
+        الحصول على بنود شراء مورد معين
+        Get purchase items for a specific supplier
+        """
+        all_items = self.load_purchase_items()
+        return [item for item in all_items if item.supplier_id == supplier_id]
+    
+    # ============ إدارة دفعات الموردين - Supplier Payments Management ============
+    
+    def load_supplier_payments(self) -> List[SupplierPayment]:
+        """
+        تحميل جميع دفعات الموردين
+        Load all supplier payments
+        """
+        payments_file = self.data_folder / "supplier_payments.jsonl"
+        data = read_jsonl(payments_file)
+        return [SupplierPayment.from_dict(p) for p in data]
+    
+    def add_supplier_payment(self, payment: SupplierPayment) -> None:
+        """
+        إضافة دفعة مورد جديدة
+        Add new supplier payment
+        """
+        payments_file = self.data_folder / "supplier_payments.jsonl"
+        atomic_append_jsonl(payments_file, payment.to_dict())
+    
+    def get_supplier_payments(self, supplier_id: str) -> List[SupplierPayment]:
+        """
+        الحصول على دفعات مورد معين
+        Get payments for a specific supplier
+        """
+        all_payments = self.load_supplier_payments()
+        return [p for p in all_payments if p.supplier_id == supplier_id]
+    
+    # ============ إدارة ملخصات الموردين - Supplier Summaries ============
+    
+    def load_supplier_summaries(self) -> Dict[str, SupplierSummary]:
+        """
+        تحميل جميع ملخصات الموردين
+        Load all supplier summaries
+        """
+        summaries_file = self.data_folder / "supplier_summaries.json"
+        data = read_json(summaries_file, default={})
+        return {
+            supplier_id: SupplierSummary.from_dict(summary_data)
+            for supplier_id, summary_data in data.items()
+        }
+    
+    def save_supplier_summaries(self, summaries: Dict[str, SupplierSummary]) -> None:
+        """
+        حفظ جميع ملخصات الموردين
+        Save all supplier summaries
+        """
+        summaries_file = self.data_folder / "supplier_summaries.json"
+        data = {
+            supplier_id: summary.to_dict()
+            for supplier_id, summary in summaries.items()
+        }
+        atomic_write_json(summaries_file, data)
+    
+    def get_supplier_summary(self, supplier_id: str) -> SupplierSummary:
+        """
+        الحصول على ملخص مورد معين
+        Get summary for specific supplier
+        """
+        summaries = self.load_supplier_summaries()
+        return summaries.get(supplier_id, SupplierSummary.empty())
+    
+    # ============ إدارة الشيكات - Check Management ============
+    
+    def load_checks(self) -> List[Check]:
+        """
+        تحميل جميع الشيكات
+        Load all checks
+        """
+        checks_file = self.data_folder / "checks.json"
+        data = read_json(checks_file, default=[])
+        return [Check.from_dict(c) for c in data]
+    
+    def save_checks(self, checks: List[Check]) -> None:
+        """
+        حفظ جميع الشيكات
+        Save all checks
+        """
+        checks_file = self.data_folder / "checks.json"
+        data = [c.to_dict() for c in checks]
+        atomic_write_json(checks_file, data)
+    
+    def add_check(self, check: Check) -> None:
+        """
+        إضافة شيك جديد
+        Add new check
+        """
+        checks = self.load_checks()
+        checks.append(check)
+        self.save_checks(checks)
+    
+    def update_check_status(self, check_id: str, new_status: str) -> bool:
+        """
+        تحديث حالة شيك
+        Update check status
+        Returns True if found and updated
+        """
+        checks = self.load_checks()
+        for i, check in enumerate(checks):
+            if check.id == check_id:
+                checks[i] = Check(
+                    id=check.id,
+                    check_number=check.check_number,
+                    bank_name=check.bank_name,
+                    amount=check.amount,
+                    issue_date=check.issue_date,
+                    due_date=check.due_date,
+                    status=new_status,
+                    direction=check.direction,
+                    party_type=check.party_type,
+                    party_id=check.party_id,
+                    party_name=check.party_name,
+                    notes=check.notes
+                )
+                self.save_checks(checks)
+                return True
+        return False
+    
+    def get_check(self, check_id: str) -> Optional[Check]:
+        """
+        الحصول على شيك بواسطة المعرف
+        Get check by ID
+        """
+        checks = self.load_checks()
+        for c in checks:
+            if c.id == check_id:
+                return c
+        return None

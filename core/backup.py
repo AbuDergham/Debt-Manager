@@ -39,7 +39,13 @@ def create_backup(backup_folder: Optional[Path] = None) -> Path:
         "customers.json",
         "entries.jsonl",
         "summaries.json",
-        "settings.json"
+        "settings.json",
+        "suppliers.json",
+        "purchase_orders.json",
+        "purchase_items.jsonl",
+        "supplier_payments.jsonl",
+        "checks.json",
+        "supplier_summaries.json"
     ]
     
     # إنشاء ملف ZIP

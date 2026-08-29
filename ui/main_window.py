@@ -5,6 +5,7 @@ Main application window
 from PySide6.QtWidgets import (
     QMainWindow, QStackedWidget, QMessageBox, QInputDialog
 )
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from core.storage import StorageManager
 from core.backup import create_backup, AutoBackupManager
@@ -14,6 +15,10 @@ from .customers_view import CustomersView
 from .customer_ledger import CustomerLedgerView
 from .dashboard import DashboardView
 from .dialogs import AppLockDialog
+from .suppliers_view import SuppliersView
+from .supplier_ledger import SupplierLedgerView
+from .purchase_order_view import PurchaseOrderView
+from .checks_view import ChecksView
 
 
 class MainWindow(QMainWindow):
@@ -100,6 +105,25 @@ class MainWindow(QMainWindow):
         self.ledger_view.back_requested.connect(self.show_customers_view)
         self.stack.addWidget(self.ledger_view)
         
+        # صفحة قائمة الموردين
+        self.suppliers_view = SuppliersView(self.storage, self)
+        self.suppliers_view.supplier_selected.connect(self.show_supplier_ledger)
+        self.suppliers_view.back_requested.connect(self.show_customers_view)
+        self.stack.addWidget(self.suppliers_view)
+        
+        # صفحة حساب المورد (يُنشأ ديناميكياً)
+        self.supplier_ledger_view = None
+        
+        # صفحة فواتير الشراء
+        self.purchase_order_view = PurchaseOrderView(self.storage, self)
+        self.purchase_order_view.back_requested.connect(self.show_customers_view)
+        self.stack.addWidget(self.purchase_order_view)
+        
+        # صفحة الشيكات
+        self.checks_view = ChecksView(self.storage, self)
+        self.checks_view.back_requested.connect(self.show_customers_view)
+        self.stack.addWidget(self.checks_view)
+        
         # شريط الحالة
         self.statusBar().showMessage("جاهز")
         
@@ -144,6 +168,26 @@ class MainWindow(QMainWindow):
         customers_action.setShortcut(QKeySequence("Ctrl+H"))
         customers_action.triggered.connect(self.show_customers_view)
         view_menu.addAction(customers_action)
+        
+        view_menu.addSeparator()
+        
+        # الموردون
+        suppliers_action = QAction("🏭 الموردون", self)
+        suppliers_action.setShortcut(QKeySequence("Ctrl+M"))
+        suppliers_action.triggered.connect(self.show_suppliers_view)
+        view_menu.addAction(suppliers_action)
+        
+        # فواتير الشراء
+        purchases_action = QAction("🧾 فواتير الشراء", self)
+        purchases_action.setShortcut(QKeySequence("Ctrl+P"))
+        purchases_action.triggered.connect(self.show_purchase_orders)
+        view_menu.addAction(purchases_action)
+        
+        # الشيكات
+        checks_action = QAction("💳 الشيكات", self)
+        checks_action.setShortcut(QKeySequence("Ctrl+K"))
+        checks_action.triggered.connect(self.show_checks)
+        view_menu.addAction(checks_action)
         
         # قائمة الإعدادات
         settings_menu = menubar.addMenu("الإعدادات")
@@ -193,6 +237,15 @@ class MainWindow(QMainWindow):
         # Ctrl+F - البحث الشامل
         QShortcut(QKeySequence("Ctrl+F"), self, self.show_search_dialog)
         
+        # Ctrl+M - الموردون
+        QShortcut(QKeySequence("Ctrl+M"), self, self.show_suppliers_view)
+        
+        # Ctrl+P - فواتير الشراء
+        QShortcut(QKeySequence("Ctrl+P"), self, self.show_purchase_orders)
+        
+        # Ctrl+K - الشيكات
+        QShortcut(QKeySequence("Ctrl+K"), self, self.show_checks)
+        
         # Escape - رجوع
         QShortcut(QKeySequence("Escape"), self, self.go_back)
     
@@ -219,6 +272,14 @@ class MainWindow(QMainWindow):
             self.show_customers_view()
         elif current == self.dashboard_view:
             self.show_customers_view()
+        elif current == self.suppliers_view:
+            self.show_customers_view()
+        elif current == self.supplier_ledger_view:
+            self.show_suppliers_view()
+        elif current == self.purchase_order_view:
+            self.show_customers_view()
+        elif current == self.checks_view:
+            self.show_customers_view()
     
     def show_dashboard(self):
         """عرض لوحة المعلومات"""
@@ -240,6 +301,38 @@ class MainWindow(QMainWindow):
         
         # التحقق من ضرورة النسخ الاحتياطي التلقائي
         self.check_auto_backup()
+    
+    def show_suppliers_view(self):
+        """عرض صفحة قائمة الموردين"""
+        self.suppliers_view.load_data()
+        self.stack.setCurrentWidget(self.suppliers_view)
+        self.statusBar().showMessage("قائمة الموردين - Ctrl+H للعودة للعملاء")
+    
+    def show_supplier_ledger(self, supplier_id: str):
+        """عرض صفحة حساب المورد"""
+        # إزالة الصفحة القديمة إذا وجدت
+        if self.supplier_ledger_view:
+            self.stack.removeWidget(self.supplier_ledger_view)
+            self.supplier_ledger_view.deleteLater()
+        
+        # إنشاء صفحة جديدة
+        self.supplier_ledger_view = SupplierLedgerView(self.storage, supplier_id, self)
+        self.supplier_ledger_view.back_requested.connect(self.show_suppliers_view)
+        self.stack.addWidget(self.supplier_ledger_view)
+        self.stack.setCurrentWidget(self.supplier_ledger_view)
+        self.statusBar().showMessage(f"حساب المورد")
+    
+    def show_purchase_orders(self):
+        """عرض صفحة فواتير الشراء"""
+        self.purchase_order_view.refresh()
+        self.stack.setCurrentWidget(self.purchase_order_view)
+        self.statusBar().showMessage("فواتير الشراء - Ctrl+H للعودة للعملاء")
+    
+    def show_checks(self):
+        """عرض صفحة الشيكات"""
+        self.checks_view.refresh()
+        self.stack.setCurrentWidget(self.checks_view)
+        self.statusBar().showMessage("نظام الشيكات - Ctrl+H للعودة للعملاء")
     
     def check_auto_backup(self):
         """التحقق من ضرورة النسخ الاحتياطي التلقائي"""

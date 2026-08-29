@@ -5,11 +5,12 @@ Global search dialog
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QLabel, QComboBox,
-    QGroupBox, QFormLayout, QHeaderView
+    QDateTimeEdit, QGroupBox, QFormLayout, QHeaderView
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QDateTime
 from PySide6.QtGui import QFont
 from decimal import Decimal
+from datetime import datetime
 
 from core.storage import StorageManager
 from core.analytics import AnalyticsEngine
@@ -182,3 +183,63 @@ class SearchDialog(QDialog):
             entry_date = customer_item.data(Qt.UserRole + 1)
             self.entry_selected.emit(customer_id, entry_date)
             self.accept()
+
+
+class DeleteConfirmDialog(QDialog):
+    """حوار تأكيد الحذف"""
+    
+    def __init__(self, item_type: str, item_name: str, details: str = "", parent=None):
+        super().__init__(parent)
+        
+        self.setWindowTitle("⚠️ تأكيد الحذف")
+        self.setModal(True)
+        self.setMinimumWidth(400)
+        
+        layout = QVBoxLayout(self)
+        
+        # رسالة التحذير
+        warning = QLabel("⚠️ هل أنت متأكد من الحذف؟")
+        warning.setFont(QFont("Arial", 14, QFont.Bold))
+        warning.setStyleSheet("color: #dc2626;")
+        layout.addWidget(warning)
+        
+        # تفاصيل العنصر
+        info = QLabel(f"سيتم حذف {item_type}: <b>{item_name}</b>")
+        layout.addWidget(info)
+        
+        if details:
+            details_label = QLabel(details)
+            details_label.setStyleSheet("color: #6b7280; margin: 10px 0;")
+            details_label.setWordWrap(True)
+            layout.addWidget(details_label)
+        
+        # تحذير نهائي
+        final_warning = QLabel("⛔ هذا الإجراء لا يمكن التراجع عنه!")
+        final_warning.setStyleSheet("color: #dc2626; font-weight: bold; margin-top: 10px;")
+        layout.addWidget(final_warning)
+        
+        # أزرار
+        buttons = QHBoxLayout()
+        
+        cancel_btn = QPushButton("إلغاء")
+        cancel_btn.clicked.connect(self.reject)
+        buttons.addWidget(cancel_btn)
+        
+        buttons.addStretch()
+        
+        delete_btn = QPushButton("🗑️ حذف نهائياً")
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc2626;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #b91c1c;
+            }
+        """)
+        delete_btn.clicked.connect(self.accept)
+        buttons.addWidget(delete_btn)
+        
+        layout.addLayout(buttons)

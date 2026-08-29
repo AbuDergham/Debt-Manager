@@ -4,13 +4,13 @@ Dashboard view with charts and statistics
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QGroupBox, QPushButton, QComboBox,
+    QGroupBox, QGridLayout, QPushButton, QComboBox,
     QScrollArea, QFrame
 )
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timedelta
 import warnings
 
 # إخفاء تحذيرات matplotlib
@@ -18,6 +18,7 @@ warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 
 from core.storage import StorageManager
 from core.analytics import AnalyticsEngine
@@ -103,13 +104,27 @@ class DashboardView(QWidget):
         
         content_layout.addLayout(charts_layout)
         
-        # أعلى العملاء
-        self.top_customers_widget = self.create_top_customers_widget()
-        content_layout.addWidget(self.top_customers_widget)
+        # أعلى العملاء والموردين
+        top_lists_layout = QHBoxLayout()
         
-        # تنبيهات حد الائتمان
+        self.top_customers_widget = self.create_top_customers_widget()
+        top_lists_layout.addWidget(self.top_customers_widget)
+        
+        self.top_suppliers_widget = self.create_top_suppliers_widget()
+        top_lists_layout.addWidget(self.top_suppliers_widget)
+        
+        content_layout.addLayout(top_lists_layout)
+        
+        # تنبيهات (ائتمان وشيكات)
+        alerts_layout_main = QHBoxLayout()
+        
         self.alerts_widget = self.create_alerts_widget()
-        content_layout.addWidget(self.alerts_widget)
+        alerts_layout_main.addWidget(self.alerts_widget)
+        
+        self.check_alerts_widget = self.create_check_alerts_widget()
+        alerts_layout_main.addWidget(self.check_alerts_widget)
+        
+        content_layout.addLayout(alerts_layout_main)
         
         scroll.setWidget(content)
         layout.addWidget(scroll)
@@ -137,10 +152,22 @@ class DashboardView(QWidget):
         self.top_customers_layout = QVBoxLayout(group)
         return group
     
+    def create_top_suppliers_widget(self) -> QGroupBox:
+        """إنشاء ويدجت أعلى الموردين"""
+        group = QGroupBox("🏭 أعلى 5 موردين نَدين لهم")
+        self.top_suppliers_layout = QVBoxLayout(group)
+        return group
+    
     def create_alerts_widget(self) -> QGroupBox:
         """إنشاء ويدجت التنبيهات"""
         group = QGroupBox("⚠️ تنبيهات حد الائتمان")
         self.alerts_layout = QVBoxLayout(group)
+        return group
+        
+    def create_check_alerts_widget(self) -> QGroupBox:
+        """إنشاء ويدجت تنبيهات الشيكات"""
+        group = QGroupBox("💳 شيكات قريبة الاستحقاق")
+        self.check_alerts_layout = QVBoxLayout(group)
         return group
     
     def create_stat_card(self, title: str, value: str, color: str) -> QFrame:
@@ -182,11 +209,13 @@ class DashboardView(QWidget):
         self.update_sales_chart(period)
         self.update_payments_chart(period)
         
-        # تحديث أعلى العملاء
+        # تحديث أعلى العملاء والموردين
         self.update_top_customers()
+        self.update_top_suppliers()
         
         # تحديث التنبيهات
         self.update_alerts()
+        self.update_check_alerts()
     
     def update_stats(self, period: str):
         """تحديث بطاقات الإحصائيات"""
@@ -218,21 +247,21 @@ class DashboardView(QWidget):
             period_sales = sum(e.amount_decimal for e in filtered_entries if e.type == "purchase")
             period_payments = sum(e.amount_decimal for e in filtered_entries if e.type == "payment")
         else:
-            period_sales = stats["total_sales"]
-            period_payments = stats["total_payments"]
-            period_label = "الإجمالي"
-        
-        # بطاقات الإحصائيات
-        cards = [
-            ("👥 إجمالي العملاء", str(int(stats["total_customers"])), "#3b82f6"),
-            (f"💵 مبيعات {period_label}", format_currency(period_sales), "#10b981"),
-            (f"💰 مدفوعات {period_label}", format_currency(period_payments), "#6366f1"),
-            ("📊 الرصيد المستحق", format_currency(stats["total_outstanding"]), "#f59e0b"),
-        ]
-        
-        for title, value, color in cards:
-            card = self.create_stat_card(title, value, color)
-            self.stats_layout.addWidget(card)
+            # الحصول على الإحصائيات الشاملة من التحليلات
+            dash_summary = self.analytics.get_dashboard_summary()
+            
+            # بطاقات الإحصائيات (تعديل لعرض معلومات الموردين والشيكات)
+            cards = [
+                ("👥 أرصدة العملاء (لنا)", format_currency(dash_summary["customer_balance"]), "#10b981"),
+                ("🏭 أرصدة الموردين (علينا)", format_currency(dash_summary["supplier_balance"]), "#ef4444"),
+                (f"💵 مبيعات {period_label}", format_currency(period_sales), "#3b82f6"),
+                (f"🛒 مشتريات (اليوم)", format_currency(dash_summary["today_purchases"]), "#f59e0b"),
+                ("⏳ شيكات معلقة", str(dash_summary["checks_pending_count"]), "#6366f1"),
+            ]
+            
+            for title, value, color in cards:
+                card = self.create_stat_card(title, value, color)
+                self.stats_layout.addWidget(card)
     
     def update_sales_chart(self, period: str):
         """تحديث رسم المبيعات"""
@@ -530,3 +559,117 @@ class DashboardView(QWidget):
             container = QWidget()
             container.setLayout(row)
             self.alerts_layout.addWidget(container)
+    
+    def update_top_suppliers(self):
+        """تحديث قائمة أعلى الموردين"""
+        while self.top_suppliers_layout.count():
+            item = self.top_suppliers_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        top_suppliers = self.analytics.get_top_suppliers_by_balance(5)
+        
+        if not top_suppliers:
+            label = QLabel("لا توجد بيانات (لا توجد ذمم موردين)")
+            label.setStyleSheet("color: #6b7280; padding: 10px;")
+            self.top_suppliers_layout.addWidget(label)
+            return
+        
+        for i, (supplier, balance) in enumerate(top_suppliers, 1):
+            row = QHBoxLayout()
+            
+            rank_label = QLabel(f"#{i}")
+            rank_label.setFont(QFont("Arial", 12, QFont.Bold))
+            rank_label.setStyleSheet("color: #ef4444;")
+            rank_label.setFixedWidth(30)
+            row.addWidget(rank_label)
+            
+            name_btn = QPushButton(supplier.name)
+            name_btn.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    text-align: right;
+                    color: #1f2937;
+                    font-size: 14px;
+                }
+            """)
+            # يمكن ربطه بحساب المورد لاحقاً
+            row.addWidget(name_btn)
+            
+            row.addStretch()
+            
+            balance_label = QLabel(format_currency(balance))
+            balance_label.setFont(QFont("Arial", 12, QFont.Bold))
+            balance_label.setStyleSheet("color: #ef4444;")
+            row.addWidget(balance_label)
+            
+            container = QWidget()
+            container.setLayout(row)
+            self.top_suppliers_layout.addWidget(container)
+    
+    def update_check_alerts(self):
+        """تحديث تنبيهات الشيكات"""
+        while self.check_alerts_layout.count():
+            item = self.check_alerts_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        checks = self.storage.load_checks()
+        pending_checks = [c for c in checks if c.status == "pending"]
+        
+        now = datetime.now()
+        week_later = now + timedelta(days=7)
+        upcoming_checks = [
+            c for c in pending_checks
+            if c.due_datetime <= week_later
+        ]
+        
+        if not upcoming_checks:
+            label = QLabel("✅ لا يوجد شيكات تستحق هذا الأسبوع")
+            label.setStyleSheet("color: #10b981; padding: 10px;")
+            self.check_alerts_layout.addWidget(label)
+            return
+        
+        # الترتيب حسب تاريخ الاستحقاق (الأقرب أولاً)
+        upcoming_checks.sort(key=lambda c: c.due_datetime)
+        
+        for check in upcoming_checks[:5]:
+            row = QHBoxLayout()
+            
+            icon = QLabel("💳")
+            icon.setFixedWidth(25)
+            row.addWidget(icon)
+            
+            info = f"شيك #{check.check_number} ({check.party_name})"
+            info_label = QLabel(info)
+            row.addWidget(info_label)
+            
+            row.addStretch()
+            
+            days_left = (check.due_datetime - now).days
+            if days_left < 0:
+                days_text = "استحق منذ أيام"
+                color = "#dc2626"  # احمر غامق
+            elif days_left == 0:
+                days_text = "يستحق اليوم!"
+                color = "#dc2626"
+            elif days_left == 1:
+                days_text = "غداً"
+                color = "#ea580c"
+            else:
+                days_text = f"بعد {days_left} أيام"
+                color = "#ea580c"  # برتقالي
+                
+            days_label = QLabel(days_text)
+            days_label.setStyleSheet(f"color: {color};")
+            row.addWidget(days_label)
+            
+            amount_label = QLabel(format_currency(check.amount_decimal))
+            amount_label.setFont(QFont("Arial", 11, QFont.Bold))
+            amount_label.setStyleSheet(f"color: {color}; margin-right: 10px;")
+            row.addWidget(amount_label)
+            
+            container = QWidget()
+            container.setLayout(row)
+            self.check_alerts_layout.addWidget(container)

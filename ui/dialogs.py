@@ -4,14 +4,17 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QPushButton, QComboBox, QDateTimeEdit,
-    QLabel, QMessageBox, QFileDialog, QTextEdit
+    QLabel, QMessageBox, QFileDialog, QTextEdit, QDateEdit
 )
-from PySide6.QtCore import Qt, QDateTime
+from PySide6.QtCore import Qt, QDateTime, QDate
 from PySide6.QtGui import QDoubleValidator
 from decimal import Decimal
 from datetime import datetime
-from core.models import Entry, PaymentMethod, EntryType
-from core.utils import validate_customer_id
+from core.models import (
+    Entry, PaymentMethod, EntryType,
+    Supplier, SupplierPayment, Check
+)
+from core.utils import validate_customer_id, str_to_decimal
 
 
 class AddCustomerDialog(QDialog):
@@ -709,4 +712,277 @@ class AppLockDialog(QDialog):
                 return
         
         self.password = password
+        super().accept()
+
+
+class AddSupplierDialog(QDialog):
+    """
+    نافذة إضافة مورد جديد
+    Add supplier dialog
+    """
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("إضافة مورد جديد")
+        self.setModal(True)
+        self.setMinimumWidth(400)
+        self.setup_ui()
+        
+        # النتائج
+        self.supplier = None
+    
+    def setup_ui(self):
+        """إعداد الواجهة"""
+        layout = QFormLayout()
+        
+        # حقل الاسم
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("أدخل اسم المورد")
+        layout.addRow("الاسم:", self.name_input)
+        
+        # رقم الهاتف
+        self.phone_input = QLineEdit()
+        self.phone_input.setPlaceholderText("مثال: 0599123456")
+        layout.addRow("رقم الهاتف:", self.phone_input)
+        
+        # الملاحظات
+        self.notes_input = QTextEdit()
+        self.notes_input.setPlaceholderText("ملاحظات عن المورد...")
+        self.notes_input.setMaximumHeight(80)
+        layout.addRow("الملاحظات:", self.notes_input)
+        
+        # الأزرار
+        buttons_layout = QHBoxLayout()
+        
+        save_btn = QPushButton("💾 حفظ")
+        save_btn.clicked.connect(self.accept)
+        
+        cancel_btn = QPushButton("إلغاء")
+        cancel_btn.clicked.connect(self.reject)
+        
+        buttons_layout.addWidget(save_btn)
+        buttons_layout.addWidget(cancel_btn)
+        
+        # التخطيط الرئيسي
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(layout)
+        main_layout.addLayout(buttons_layout)
+        
+        self.setLayout(main_layout)
+    
+    def accept(self):
+        """التحقق من البيانات والحفظ"""
+        name = self.name_input.text().strip()
+        
+        if not name:
+            QMessageBox.warning(self, "خطأ", "يرجى إدخال اسم المورد")
+            return
+        
+        # توليد معرف فريد
+        import random
+        supplier_id = f"SUP_{name.replace(' ', '_')}_{random.randint(1000, 9999)}"
+        
+        phone = self.phone_input.text().strip()
+        notes = self.notes_input.toPlainText().strip()
+        
+        self.supplier = Supplier(
+            id=supplier_id,
+            name=name,
+            phone=phone,
+            notes=notes
+        )
+        
+        super().accept()
+
+
+class EditSupplierDialog(QDialog):
+    """
+    نافذة تعديل معلومات مورد
+    Edit supplier information dialog
+    """
+    
+    def __init__(self, supplier: Supplier, parent=None):
+        super().__init__(parent)
+        self.supplier = supplier
+        self.setWindowTitle(f"تعديل معلومات المورد - {supplier.name}")
+        self.setModal(True)
+        self.setMinimumWidth(400)
+        self.setup_ui()
+        self.load_supplier_data()
+        
+        # النتائج
+        self.updated_supplier = None
+    
+    def setup_ui(self):
+        """إعداد الواجهة"""
+        layout = QFormLayout()
+        
+        # الاسم
+        self.name_input = QLineEdit()
+        layout.addRow("الاسم:", self.name_input)
+        
+        # رقم الهاتف
+        self.phone_input = QLineEdit()
+        self.phone_input.setPlaceholderText("مثال: 0599123456")
+        layout.addRow("رقم الهاتف:", self.phone_input)
+        
+        # الملاحظات
+        self.notes_input = QTextEdit()
+        self.notes_input.setPlaceholderText("ملاحظات عن المورد...")
+        self.notes_input.setMaximumHeight(80)
+        layout.addRow("الملاحظات:", self.notes_input)
+        
+        # الأزرار
+        buttons_layout = QHBoxLayout()
+        
+        save_btn = QPushButton("💾 حفظ")
+        save_btn.clicked.connect(self.accept)
+        
+        cancel_btn = QPushButton("إلغاء")
+        cancel_btn.clicked.connect(self.reject)
+        
+        buttons_layout.addWidget(save_btn)
+        buttons_layout.addWidget(cancel_btn)
+        
+        # التخطيط الرئيسي
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(layout)
+        main_layout.addLayout(buttons_layout)
+        
+        self.setLayout(main_layout)
+    
+    def load_supplier_data(self):
+        """تحميل بيانات المورد الحالية"""
+        self.name_input.setText(self.supplier.name)
+        self.phone_input.setText(self.supplier.phone if self.supplier.phone else "")
+        self.notes_input.setPlainText(self.supplier.notes if self.supplier.notes else "")
+    
+    def accept(self):
+        """التحقق من البيانات والحفظ"""
+        name = self.name_input.text().strip()
+        
+        if not name:
+            QMessageBox.warning(self, "خطأ", "يرجى إدخال اسم المورد")
+            return
+        
+        phone = self.phone_input.text().strip()
+        notes = self.notes_input.toPlainText().strip()
+        
+        self.updated_supplier = Supplier(
+            id=self.supplier.id,
+            name=name,
+            phone=phone,
+            notes=notes
+        )
+        
+        super().accept()
+
+
+class AddSupplierPaymentDialog(QDialog):
+    """
+    نافذة إضافة دفعة لمورد
+    Add supplier payment dialog
+    """
+    
+    def __init__(self, supplier: Supplier, current_balance=None, parent=None):
+        super().__init__(parent)
+        self.supplier = supplier
+        self.current_balance = current_balance
+        self.setWindowTitle(f"إضافة دفعة - {supplier.name}")
+        self.setModal(True)
+        self.setMinimumWidth(400)
+        self.setup_ui()
+        
+        # النتائج
+        self.payment = None
+    
+    def setup_ui(self):
+        """إعداد الواجهة"""
+        layout = QFormLayout()
+        
+        # عرض الرصيد الحالي
+        if self.current_balance is not None:
+            from core.utils import format_currency
+            balance_label = QLabel(f"💰 الرصيد الحالي: {format_currency(self.current_balance)}")
+            balance_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ef4444; padding: 10px;")
+            layout.addRow("", balance_label)
+        
+        # المبلغ
+        self.amount_input = QLineEdit()
+        self.amount_input.setPlaceholderText("0.00")
+        validator = QDoubleValidator(0.01, 999999.99, 2)
+        validator.setNotation(QDoubleValidator.StandardNotation)
+        self.amount_input.setValidator(validator)
+        layout.addRow("المبلغ:", self.amount_input)
+        
+        # طريقة الدفع
+        self.payment_method_combo = QComboBox()
+        self.payment_method_combo.addItem("نقداً", "cash")
+        self.payment_method_combo.addItem("تحويل", "transfer")
+        self.payment_method_combo.addItem("شيك", "check")
+        layout.addRow("طريقة الدفع:", self.payment_method_combo)
+        
+        # التاريخ والوقت
+        self.datetime_edit = QDateTimeEdit()
+        self.datetime_edit.setCalendarPopup(True)
+        self.datetime_edit.setDateTime(QDateTime.currentDateTime())
+        self.datetime_edit.setDisplayFormat("AP mm:hh dd/MM/yyyy")
+        self.datetime_edit.setAlignment(Qt.AlignLeft)
+        layout.addRow("التاريخ:", self.datetime_edit)
+        
+        # الملاحظات
+        self.notes_input = QTextEdit()
+        self.notes_input.setPlaceholderText("ملاحظات (اختياري)")
+        self.notes_input.setMaximumHeight(60)
+        layout.addRow("الملاحظات:", self.notes_input)
+        
+        # الأزرار
+        buttons_layout = QHBoxLayout()
+        
+        save_btn = QPushButton("💾 حفظ")
+        save_btn.clicked.connect(self.accept)
+        
+        cancel_btn = QPushButton("إلغاء")
+        cancel_btn.clicked.connect(self.reject)
+        
+        buttons_layout.addWidget(save_btn)
+        buttons_layout.addWidget(cancel_btn)
+        
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(layout)
+        main_layout.addLayout(buttons_layout)
+        
+        self.setLayout(main_layout)
+    
+    def accept(self):
+        """التحقق من البيانات والحفظ"""
+        amount_text = self.amount_input.text().strip()
+        if not amount_text:
+            QMessageBox.warning(self, "خطأ", "يرجى إدخال المبلغ")
+            return
+        
+        try:
+            amount = Decimal(amount_text)
+            if amount <= 0:
+                QMessageBox.warning(self, "خطأ", "المبلغ يجب أن يكون أكبر من صفر")
+                return
+        except:
+            QMessageBox.warning(self, "خطأ", "المبلغ غير صالح")
+            return
+        
+        from core.utils import generate_payment_id
+        
+        payment_method = self.payment_method_combo.currentData()
+        dt = self.datetime_edit.dateTime().toPython()
+        notes = self.notes_input.toPlainText().strip()
+        
+        self.payment = SupplierPayment(
+            id=generate_payment_id(),
+            supplier_id=self.supplier.id,
+            amount=f"{amount:.2f}",
+            date=dt.isoformat(),
+            payment_method=payment_method,
+            notes=notes
+        )
+        
         super().accept()

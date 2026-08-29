@@ -102,3 +102,97 @@ def calculate_running_balances(entries: List[Entry]) -> List[Decimal]:
         running_balances.append(current_balance)
     
     return running_balances
+
+
+def get_total_debt(summaries: Dict[str, Summary]) -> Decimal:
+    """
+    حساب إجمالي الديون (مجموع أرصدة جميع العملاء الموجبة)
+    Calculate total debt (sum of all positive customer balances)
+    
+    Args:
+        summaries: قاموس الملخصات
+    
+    Returns:
+        إجمالي الديون
+    """
+    total = Decimal("0.00")
+    
+    for summary in summaries.values():
+        balance = summary.balance_decimal
+        if balance > 0:
+            total += balance
+    
+    return total
+
+
+def get_total_sales_today(summaries: Dict[str, Summary]) -> Decimal:
+    """
+    حساب إجمالي المبيعات اليوم
+    Calculate total sales for today
+    
+    Args:
+        summaries: قاموس الملخصات
+    
+    Returns:
+        إجمالي المبيعات اليوم
+    """
+    total = Decimal("0.00")
+    
+    for summary in summaries.values():
+        total += summary.today_sales_decimal
+    
+    return total
+
+
+def get_total_sales_month(summaries: Dict[str, Summary]) -> Decimal:
+    """
+    حساب إجمالي المبيعات للشهر
+    Calculate total sales for the month
+    
+    Args:
+        summaries: قاموس الملخصات
+    
+    Returns:
+        إجمالي المبيعات للشهر
+    """
+    total = Decimal("0.00")
+    
+    for summary in summaries.values():
+        total += summary.month_sales_decimal
+    
+    return total
+
+
+def filter_entries_by_date_range(
+    entries: List[Entry],
+    start_date: datetime = None,
+    end_date: datetime = None
+) -> List[Entry]:
+    """
+    تصفية الإدخالات حسب نطاق زمني
+    Filter entries by date range
+    
+    Args:
+        entries: قائمة الإدخالات
+        start_date: تاريخ البداية (اختياري)
+        end_date: تاريخ النهاية (اختياري)
+    
+    Returns:
+        قائمة الإدخالات المفلترة
+    """
+    filtered = []
+    
+    for entry in entries:
+        entry_date = entry.datetime
+        
+        # التحقق من تاريخ البداية
+        if start_date and entry_date < start_date:
+            continue
+        
+        # التحقق من تاريخ النهاية
+        if end_date and entry_date > end_date:
+            continue
+        
+        filtered.append(entry)
+    
+    return filtered

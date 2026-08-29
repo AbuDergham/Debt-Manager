@@ -3,6 +3,7 @@
 Main entry point for the debt management application
 """
 import sys
+from pathlib import Path
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QIcon

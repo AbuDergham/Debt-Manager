@@ -2,11 +2,13 @@
 أدوات مساعدة للتطبيق
 Utility functions for the application
 """
+import os
 import sys
 import hashlib
 from pathlib import Path
 from decimal import Decimal
 from datetime import datetime
+from typing import Optional
 
 
 def get_base_path() -> Path:
@@ -67,6 +69,32 @@ def ensure_data_folder() -> None:
     settings_file = data_folder / "settings.json"
     if not settings_file.exists():
         settings_file.write_text('{"theme": "light", "auto_backup_interval": 200}', encoding="utf-8")
+    
+    # === ملفات نظام الموردين الجديدة ===
+    # === New supplier system files ===
+    suppliers_file = data_folder / "suppliers.json"
+    if not suppliers_file.exists():
+        suppliers_file.write_text("[]", encoding="utf-8")
+    
+    purchase_orders_file = data_folder / "purchase_orders.json"
+    if not purchase_orders_file.exists():
+        purchase_orders_file.write_text("[]", encoding="utf-8")
+    
+    purchase_items_file = data_folder / "purchase_items.jsonl"
+    if not purchase_items_file.exists():
+        purchase_items_file.write_text("", encoding="utf-8")
+    
+    supplier_payments_file = data_folder / "supplier_payments.jsonl"
+    if not supplier_payments_file.exists():
+        supplier_payments_file.write_text("", encoding="utf-8")
+    
+    checks_file = data_folder / "checks.json"
+    if not checks_file.exists():
+        checks_file.write_text("[]", encoding="utf-8")
+    
+    supplier_summaries_file = data_folder / "supplier_summaries.json"
+    if not supplier_summaries_file.exists():
+        supplier_summaries_file.write_text("{}", encoding="utf-8")
 
 
 def decimal_to_str(value: Decimal) -> str:
@@ -105,6 +133,14 @@ def format_datetime_arabic(dt: datetime) -> str:
     """
     # 12-hour format with AM/PM after time
     return dt.strftime("%Y/%m/%d %I:%M %p")
+
+
+def format_date_arabic(dt: datetime) -> str:
+    """
+    تنسيق التاريخ فقط بصيغة عربية
+    Format date only in Arabic-friendly format
+    """
+    return dt.strftime("%Y/%m/%d")
 
 
 def hash_password(password: str) -> str:
@@ -164,3 +200,33 @@ def validate_customer_id(customer_id: str) -> bool:
     
     # يجب أن يحتوي على حروف أو أرقام فقط (بدون مسافات أو رموز)
     return customer_id.replace("_", "").replace("-", "").isalnum()
+
+
+def generate_order_id() -> str:
+    """
+    توليد معرف فريد لطلبية الشراء
+    Generate unique purchase order ID
+    Format: PO_YYYYMMDD_HHMMSS
+    """
+    now = datetime.now()
+    return f"PO_{now.strftime('%Y%m%d_%H%M%S')}"
+
+
+def generate_check_id() -> str:
+    """
+    توليد معرف فريد للشيك
+    Generate unique check ID
+    Format: CHK_YYYYMMDD_HHMMSS
+    """
+    now = datetime.now()
+    return f"CHK_{now.strftime('%Y%m%d_%H%M%S')}"
+
+
+def generate_payment_id() -> str:
+    """
+    توليد معرف فريد لدفعة مورد
+    Generate unique supplier payment ID
+    Format: SP_YYYYMMDD_HHMMSS
+    """
+    now = datetime.now()
+    return f"SP_{now.strftime('%Y%m%d_%H%M%S')}"

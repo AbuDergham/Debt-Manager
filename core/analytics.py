@@ -3,11 +3,14 @@
 Analytics engine for business insights
 """
 from decimal import Decimal
-from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from datetime import datetime, timedelta
+from typing import Dict, List, Tuple, Optional, Any
 from collections import defaultdict
 
-from .models import Entry, Customer
+from .models import (
+    Entry, Customer,
+    Supplier, PurchaseItem, SupplierPayment, Check
+)
 from .storage import StorageManager
 
 
@@ -19,6 +22,40 @@ class AnalyticsEngine:
     
     def __init__(self, storage: StorageManager):
         self.storage = storage
+    
+    def get_monthly_sales(self, year: int) -> Dict[int, Decimal]:
+        """
+        الحصول على المبيعات الشهرية لسنة معينة
+        Get monthly sales for a given year
+        
+        Returns: {month: total_sales}
+        """
+        entries = self.storage.load_entries()
+        monthly = defaultdict(lambda: Decimal("0"))
+        
+        for entry in entries:
+            if entry.type == "purchase":
+                dt = entry.datetime
+                if dt.year == year:
+                    monthly[dt.month] += entry.amount_decimal
+        
+        return dict(monthly)
+    
+    def get_monthly_payments(self, year: int) -> Dict[int, Decimal]:
+        """
+        الحصول على المدفوعات الشهرية لسنة معينة
+        Get monthly payments for a given year
+        """
+        entries = self.storage.load_entries()
+        monthly = defaultdict(lambda: Decimal("0"))
+        
+        for entry in entries:
+            if entry.type == "payment":
+                dt = entry.datetime
+                if dt.year == year:
+                    monthly[dt.month] += entry.amount_decimal
+        
+        return dict(monthly)
     
     def get_top_customers_by_balance(self, limit: int = 5) -> List[Tuple[Customer, Decimal]]:
         """
@@ -218,3 +255,92 @@ class AnalyticsEngine:
         results.sort(key=lambda x: x[0].datetime, reverse=True)
         
         return results
+    
+    # ==========================================
+    # تحليلات الموردين والشيكات
+    # ==========================================
+    
+    def get_top_suppliers_by_balance(self, limit: int = 5) -> List[Tuple[Supplier, Decimal]]:
+        """
+        الحصول على أعلى الموردين برصيد (اللي عليك)
+        Get top suppliers by outstanding balance
+        """
+        summaries = self.storage.load_supplier_summaries()
+        suppliers = {s.id: s for s in self.storage.load_suppliers()}
+        
+        # تصفية الموردين المحذوفين
+        active_summaries = {
+            sid: s for sid, s in summaries.items()
+            if sid in suppliers and s.balance_decimal > 0
+        }
+        
+        # الترتيب حسب الرصيد
+        sorted_suppliers = sorted(
+            active_summaries.items(),
+            key=lambda x: x[1].balance_decimal,
+            reverse=True
+        )
+        
+        return [
+            (suppliers[sid], summary.balance_decimal)
+            for sid, summary in sorted_suppliers[:limit]
+        ]
+    
+    def get_dashboard_summary(self) -> Dict[str, Any]:
+        """
+        الحصول على ملخص شامل للشاشة الرئيسية (عملاء، موردين، شيكات)
+        Get comprehensive summary for the dashboard
+        """
+        # 1. أرصدة العملاء
+        customer_summaries = self.storage.load_summaries()
+        total_customer_balance = sum(s.balance_decimal for s in customer_summaries.values())
+        
+        # 2. أرصدة الموردين
+        supplier_summaries = self.storage.load_supplier_summaries()
+        total_supplier_balance = sum(s.balance_decimal for s in supplier_summaries.values())
+        
+        # 3. ملخص الشيكات
+        checks = self.storage.load_checks()
+        pending_checks = [c for c in checks if c.status == "pending"]
+        
+        now = datetime.now()
+        week_later = now + timedelta(days=7)
+        upcoming_checks = [
+            c for c in pending_checks
+            if c.due_datetime <= week_later
+        ]
+        
+        # 4. تدفق نقدي
+        # (بشكل مبسط: مبيعات اليوم، مدفوعات العملاء اليوم)
+        entries = self.storage.load_entries()
+        today = now.date()
+        
+        today_sales = sum(
+            e.amount_decimal for e in entries
+            if e.type == "purchase" and e.datetime.date() == today
+        )
+        
+        today_collections = sum(
+            e.amount_decimal for e in entries
+            if e.type == "payment" and e.datetime.date() == today
+        )
+        
+        # 5. مشتريات الموردين اليوم
+        purchase_orders = self.storage.load_purchase_orders()
+        purchase_items = self.storage.load_purchase_items()
+        
+        today_orders = [o.id for o in purchase_orders if o.datetime.date() == today]
+        today_purchases = sum(
+            i.total_decimal for i in purchase_items
+            if i.order_id in today_orders
+        )
+        
+        return {
+            "customer_balance": total_customer_balance,
+            "supplier_balance": total_supplier_balance,
+            "checks_pending_count": len(pending_checks),
+            "checks_upcoming_count": len(upcoming_checks),
+            "today_sales": today_sales,
+            "today_collections": today_collections,
+            "today_purchases": today_purchases
+        }

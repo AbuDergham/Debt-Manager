@@ -11,6 +11,13 @@ from typing import Literal
 EntryType = Literal["purchase", "payment"]
 PaymentMethod = Literal["cash", "transfer"]
 
+# أنواع جديدة للموردين والشيكات
+PackagingType = Literal["municipal", "plastic"]  # بلدية / بلاستيك
+SupplierPaymentMethod = Literal["cash", "transfer", "check"]  # نقدي / تحويل / شيك
+PurchasePaymentMethod = Literal["credit", "cash"]  # آجل / نقدي
+CheckStatus = Literal["pending", "cashed", "bounced"]  # معلق / مصروف / مرتجع
+CheckDirection = Literal["incoming", "outgoing"]  # وارد / صادر
+
 
 @dataclass
 class Customer:
@@ -181,4 +188,318 @@ class Summary:
             today_sales="0.00",
             month_sales="0.00",
             last_update=datetime.now().isoformat()
+        )
+
+
+@dataclass
+class Supplier:
+    """نموذج المورد - Supplier model"""
+    id: str
+    name: str
+    phone: str = ""
+    notes: str = ""
+    
+    def to_dict(self):
+        """تحويل إلى قاموس"""
+        return asdict(self)
+    
+    @staticmethod
+    def from_dict(data: dict) -> 'Supplier':
+        """إنشاء من قاموس"""
+        return Supplier(
+            id=data['id'],
+            name=data['name'],
+            phone=data.get('phone', ''),
+            notes=data.get('notes', '')
+        )
+
+
+@dataclass
+class PurchaseOrder:
+    """نموذج طلبية الشراء - Purchase order model"""
+    id: str              # "PO_20260413_001"
+    date: str            # ISO format date
+    notes: str = ""
+    
+    def to_dict(self):
+        """تحويل إلى قاموس"""
+        return asdict(self)
+    
+    @staticmethod
+    def from_dict(data: dict) -> 'PurchaseOrder':
+        """إنشاء من قاموس"""
+        return PurchaseOrder(
+            id=data['id'],
+            date=data['date'],
+            notes=data.get('notes', '')
+        )
+    
+    @property
+    def datetime(self) -> datetime:
+        """الحصول على التاريخ كـ datetime"""
+        return datetime.fromisoformat(self.date)
+
+
+@dataclass
+class PurchaseItem:
+    """نموذج بند شراء - Purchase item model"""
+    order_id: str           # معرف الطلبية
+    supplier_id: str        # معرف المورد
+    item_name: str          # الصنف (بندورة، خيار، إلخ)
+    quantity: str           # العدد (0 إذا لا ينطبق)
+    weight: str             # الوزن (0 إذا لا ينطبق)
+    price: str              # السعر
+    packaging: PackagingType  # بلدية / بلاستيك
+    payment_method: PurchasePaymentMethod  # آجل / نقدي
+    total: str              # المجموع
+    notes: str = ""
+    
+    @property
+    def quantity_decimal(self) -> Decimal:
+        """الحصول على العدد كـ Decimal"""
+        return Decimal(self.quantity) if self.quantity else Decimal("0")
+    
+    @property
+    def weight_decimal(self) -> Decimal:
+        """الحصول على الوزن كـ Decimal"""
+        return Decimal(self.weight) if self.weight else Decimal("0")
+    
+    @property
+    def price_decimal(self) -> Decimal:
+        """الحصول على السعر كـ Decimal"""
+        return Decimal(self.price) if self.price else Decimal("0")
+    
+    @property
+    def total_decimal(self) -> Decimal:
+        """الحصول على المجموع كـ Decimal"""
+        return Decimal(self.total) if self.total else Decimal("0")
+    
+    @staticmethod
+    def calculate_total(quantity: str, weight: str, price: str) -> Decimal:
+        """
+        حساب المجموع التلقائي
+        Auto-calculate total based on available fields
+        """
+        q = Decimal(quantity) if quantity and Decimal(quantity) > 0 else Decimal("0")
+        w = Decimal(weight) if weight and Decimal(weight) > 0 else Decimal("0")
+        p = Decimal(price) if price and Decimal(price) > 0 else Decimal("0")
+        
+        if q > 0 and w > 0 and p > 0:
+            return q * w * p        # عدد × وزن × سعر
+        elif q > 0 and p > 0:
+            return q * p            # عدد × سعر
+        elif w > 0 and p > 0:
+            return w * p            # وزن × سعر
+        else:
+            return Decimal("0")
+    
+    def to_dict(self):
+        """تحويل إلى قاموس"""
+        return {
+            'order_id': self.order_id,
+            'supplier_id': self.supplier_id,
+            'item_name': self.item_name,
+            'quantity': self.quantity,
+            'weight': self.weight,
+            'price': self.price,
+            'packaging': self.packaging,
+            'payment_method': self.payment_method,
+            'total': self.total,
+            'notes': self.notes
+        }
+    
+    @staticmethod
+    def from_dict(data: dict) -> 'PurchaseItem':
+        """إنشاء من قاموس"""
+        return PurchaseItem(
+            order_id=data['order_id'],
+            supplier_id=data['supplier_id'],
+            item_name=data['item_name'],
+            quantity=data.get('quantity', '0'),
+            weight=data.get('weight', '0'),
+            price=data.get('price', '0'),
+            packaging=data.get('packaging', 'municipal'),
+            payment_method=data.get('payment_method', 'credit'),
+            total=data.get('total', '0'),
+            notes=data.get('notes', '')
+        )
+
+
+@dataclass
+class SupplierPayment:
+    """نموذج دفعة مورد - Supplier payment model"""
+    id: str
+    supplier_id: str
+    amount: str
+    date: str
+    payment_method: SupplierPaymentMethod  # نقدي / تحويل / شيك
+    check_id: str = ""      # معرف الشيك إذا كان الدفع بشيك
+    notes: str = ""
+    
+    @property
+    def amount_decimal(self) -> Decimal:
+        """الحصول على المبلغ كـ Decimal"""
+        return Decimal(self.amount)
+    
+    @property
+    def datetime(self) -> datetime:
+        """الحصول على التاريخ كـ datetime"""
+        return datetime.fromisoformat(self.date)
+    
+    def to_dict(self):
+        """تحويل إلى قاموس"""
+        return {
+            'id': self.id,
+            'supplier_id': self.supplier_id,
+            'amount': self.amount,
+            'date': self.date,
+            'payment_method': self.payment_method,
+            'check_id': self.check_id,
+            'notes': self.notes
+        }
+    
+    @staticmethod
+    def from_dict(data: dict) -> 'SupplierPayment':
+        """إنشاء من قاموس"""
+        return SupplierPayment(
+            id=data['id'],
+            supplier_id=data['supplier_id'],
+            amount=data['amount'],
+            date=data['date'],
+            payment_method=data.get('payment_method', 'cash'),
+            check_id=data.get('check_id', ''),
+            notes=data.get('notes', '')
+        )
+
+
+@dataclass
+class SupplierSummary:
+    """
+    ملخص حساب المورد
+    Supplier account summary
+    """
+    balance: str         # الرصيد الحالي (اللي عليك)
+    total_purchases: str # إجمالي المشتريات الآجلة
+    total_payments: str  # إجمالي الدفعات
+    last_update: str     # آخر تحديث
+    
+    @property
+    def balance_decimal(self) -> Decimal:
+        """الحصول على الرصيد كـ Decimal"""
+        return Decimal(self.balance)
+    
+    @property
+    def total_purchases_decimal(self) -> Decimal:
+        """الحصول على إجمالي المشتريات كـ Decimal"""
+        return Decimal(self.total_purchases)
+    
+    @property
+    def total_payments_decimal(self) -> Decimal:
+        """الحصول على إجمالي الدفعات كـ Decimal"""
+        return Decimal(self.total_payments)
+    
+    def to_dict(self):
+        """تحويل إلى قاموس"""
+        return asdict(self)
+    
+    @staticmethod
+    def from_dict(data: dict) -> 'SupplierSummary':
+        """إنشاء من قاموس"""
+        return SupplierSummary(
+            balance=data['balance'],
+            total_purchases=data['total_purchases'],
+            total_payments=data['total_payments'],
+            last_update=data['last_update']
+        )
+    
+    @staticmethod
+    def empty() -> 'SupplierSummary':
+        """إنشاء ملخص فارغ"""
+        return SupplierSummary(
+            balance="0.00",
+            total_purchases="0.00",
+            total_payments="0.00",
+            last_update=datetime.now().isoformat()
+        )
+
+
+@dataclass
+class Check:
+    """نموذج شيك - Check model"""
+    id: str                 # معرف فريد
+    check_number: str       # رقم الشيك
+    bank_name: str          # اسم البنك
+    amount: str             # المبلغ
+    issue_date: str         # تاريخ الإصدار
+    due_date: str           # تاريخ الاستحقاق
+    status: CheckStatus     # معلق / مصروف / مرتجع
+    direction: CheckDirection  # وارد / صادر
+    party_type: str         # "supplier" / "other"
+    party_id: str           # معرف الجهة
+    party_name: str         # اسم الجهة
+    notes: str = ""
+    
+    @property
+    def amount_decimal(self) -> Decimal:
+        """الحصول على المبلغ كـ Decimal"""
+        return Decimal(self.amount)
+    
+    @property
+    def issue_datetime(self) -> datetime:
+        """الحصول على تاريخ الإصدار كـ datetime"""
+        return datetime.fromisoformat(self.issue_date)
+    
+    @property
+    def due_datetime(self) -> datetime:
+        """الحصول على تاريخ الاستحقاق كـ datetime"""
+        return datetime.fromisoformat(self.due_date)
+    
+    @property
+    def is_pending(self) -> bool:
+        """هل الشيك معلق"""
+        return self.status == "pending"
+    
+    @property
+    def is_cashed(self) -> bool:
+        """هل الشيك مصروف"""
+        return self.status == "cashed"
+    
+    @property
+    def is_bounced(self) -> bool:
+        """هل الشيك مرتجع"""
+        return self.status == "bounced"
+    
+    def to_dict(self):
+        """تحويل إلى قاموس"""
+        return {
+            'id': self.id,
+            'check_number': self.check_number,
+            'bank_name': self.bank_name,
+            'amount': self.amount,
+            'issue_date': self.issue_date,
+            'due_date': self.due_date,
+            'status': self.status,
+            'direction': self.direction,
+            'party_type': self.party_type,
+            'party_id': self.party_id,
+            'party_name': self.party_name,
+            'notes': self.notes
+        }
+    
+    @staticmethod
+    def from_dict(data: dict) -> 'Check':
+        """إنشاء من قاموس"""
+        return Check(
+            id=data['id'],
+            check_number=data['check_number'],
+            bank_name=data['bank_name'],
+            amount=data['amount'],
+            issue_date=data['issue_date'],
+            due_date=data['due_date'],
+            status=data.get('status', 'pending'),
+            direction=data.get('direction', 'outgoing'),
+            party_type=data.get('party_type', 'supplier'),
+            party_id=data.get('party_id', ''),
+            party_name=data.get('party_name', ''),
+            notes=data.get('notes', '')
         )
