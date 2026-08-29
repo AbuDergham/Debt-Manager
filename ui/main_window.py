@@ -183,7 +183,14 @@ class MainWindow(QMainWindow):
         
         # قائمة الإعدادات
         settings_menu = menubar.addMenu("الإعدادات")
-        
+
+        # معلومات المحل — تظهر في ترويسة المطبوعات
+        shop_action = QAction("🏪 معلومات المحل", self)
+        shop_action.triggered.connect(self.configure_shop_info)
+        settings_menu.addAction(shop_action)
+
+        settings_menu.addSeparator()
+
         # تبديل الTheme
         theme_action = QAction("تبديل الوضع (فاتح/داكن)", self)
         theme_action.triggered.connect(self.toggle_theme)
@@ -606,3 +613,54 @@ class MainWindow(QMainWindow):
             "<p>النسخ الاحتياطي: تلقائي ويدوي</p>"
             "<p>التصدير: CSV, JSON, PDF</p>"
         )
+
+    def configure_shop_info(self):
+        """
+        تعديل اسم المحل ورقم هاتفه
+        Edit shop name and phone
+
+        يظهران في ترويسة كل مطبوعة — كشف حساب يُسلَّم للزبون بلا اسم المحل
+        غير مقبول.
+        """
+        from PySide6.QtWidgets import (
+            QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QVBoxLayout
+        )
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("معلومات المحل")
+        dialog.setModal(True)
+        dialog.setMinimumWidth(380)
+
+        name_input = QLineEdit(
+            self.storage.get_setting("shop_name", "محل الخضار والفواكه"))
+        name_input.setPlaceholderText("اسم المحل كما يظهر في المطبوعات")
+
+        phone_input = QLineEdit(self.storage.get_setting("shop_phone", ""))
+        phone_input.setPlaceholderText("مثال: 0569337729")
+
+        form = QFormLayout()
+        form.addRow("اسم المحل:", name_input)
+        form.addRow("رقم الهاتف:", phone_input)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Save).setText("💾 حفظ")
+        buttons.button(QDialogButtonBox.Cancel).setText("إلغاء")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+
+        layout = QVBoxLayout(dialog)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+        if not dialog.exec():
+            return
+
+        name = name_input.text().strip()
+        if not name:
+            QMessageBox.warning(self, "خطأ", "يرجى إدخال اسم المحل")
+            return
+
+        self.storage.update_setting("shop_name", name)
+        self.storage.update_setting("shop_phone", phone_input.text().strip())
+        self.statusBar().showMessage("تم حفظ معلومات المحل", 3000)

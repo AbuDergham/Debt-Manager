@@ -64,15 +64,15 @@ class CustomerLedgerView(QWidget):
         summary_layout = QHBoxLayout()
         
         # الرصيد الحالي
-        self.balance_box = self.create_summary_card("الرصيد الحالي", "0.00 ج.م")
+        self.balance_box = self.create_summary_card("الرصيد الحالي", format_currency(Decimal("0")))
         summary_layout.addWidget(self.balance_box)
         
         # مبيعات اليوم
-        self.today_sales_box = self.create_summary_card("مبيعات اليوم", "0.00 ج.م")
+        self.today_sales_box = self.create_summary_card("مبيعات اليوم", format_currency(Decimal("0")))
         summary_layout.addWidget(self.today_sales_box)
         
         # مبيعات الشهر
-        self.month_sales_box = self.create_summary_card("مبيعات الشهر", "0.00 ج.م")
+        self.month_sales_box = self.create_summary_card("مبيعات الشهر", format_currency(Decimal("0")))
         summary_layout.addWidget(self.month_sales_box)
         
         layout.addLayout(summary_layout)
@@ -145,6 +145,11 @@ class CustomerLedgerView(QWidget):
         
         actions_layout.addStretch()
         
+        self.print_btn = QPushButton("🖨️ طباعة")
+        self.print_btn.setToolTip("طباعة كشف حساب العميل، أو حفظه PDF")
+        self.print_btn.clicked.connect(self.print_ledger)
+        actions_layout.addWidget(self.print_btn)
+
         self.export_btn = QPushButton("تصدير")
         self.export_btn.clicked.connect(self.export_ledger)
         actions_layout.addWidget(self.export_btn)
@@ -416,150 +421,72 @@ class CustomerLedgerView(QWidget):
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     
+    def report_context(self):
+        """معلومات المحل من الإعدادات، لترويسة التقرير"""
+        from core.reports import ReportContext
+        return ReportContext(
+            shop_name=self.storage.get_setting("shop_name", "محل الخضار والفواكه"),
+            shop_phone=self.storage.get_setting("shop_phone", ""),
+        )
+
+    def period_label(self) -> str:
+        """وصف الفترة المعروضة، ليظهر في التقرير"""
+        return {"today": "اليوم", "month": "هذا الشهر"}.get(
+            self.current_filter, "كل الفترات")
+
+    def visible_entries(self):
+        """
+        الحركات كما تظهر على الشاشة الآن — بترتيب الجدول وتصفيته
+        Entries exactly as displayed: same filter, same order
+        """
+        by_id = {e.id: e for e in self.entries}
+        ordered = []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item is None:
+                continue
+            entry = by_id.get(item.data(Qt.UserRole))
+            if entry is not None:
+                ordered.append(entry)
+        return ordered
+
+    def build_report_html(self, paper: str) -> str:
+        """يبني كشف حساب العميل بنوع الورق المطلوب"""
+        from core.reports import build_ledger_report
+        return build_ledger_report(
+            self.customer, self.visible_entries(), self.summary,
+            self.report_context(), paper, self.period_label(),
+        )
+
+    def print_ledger(self):
+        """طباعة كشف حساب العميل أو حفظه PDF"""
+        if not self.customer:
+            return
+
+        from .print_dialog import PrintOptionsDialog
+
+        PrintOptionsDialog(
+            build_html=self.build_report_html,
+            storage=self.storage,
+            title=f"طباعة كشف حساب: {self.customer.name}",
+            default_filename=f"كشف-حساب-{self.customer.name}",
+            parent=self,
+        ).exec()
+
     def export_to_pdf(self, path: str):
-        """تصدير إلى PDF"""
-        try:
-            from reportlab.lib.pagesizes import A4
-            from reportlab.lib import colors
-            from reportlab.lib.units import cm
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-            from reportlab.lib.styles import getSampleStyleSheet
-            from reportlab.pdfbase import pdfmetrics
-            from reportlab.pdfbase.ttfonts import TTFont
-            import os
-            
-            # دالة مساعدة لتنسيق العملة في PDF
-            def format_currency_pdf(amount):
-                return f"{amount:,.2f} ILS"
-            
-            # دالة لإعادة تشكيل النص العربي لربط الأحرف
-            def fix_arabic_text(text):
-                """إعادة تشكيل النص العربي لربط الأحرف بشكل صحيح"""
-                if not text:
-                    return text
-                try:
-                    # محاولة استخدام arabic_reshaper إذا كان متوفراً
-                    import arabic_reshaper
-                    from bidi.algorithm import get_display
-                    
-                    # إعادة تشكيل النص العربي لربط الأحرف
-                    reshaped_text = arabic_reshaper.reshape(text)
-                    # عكس النص للعرض من اليسار لليمين
-                    bidi_text = get_display(reshaped_text)
-                    return bidi_text
-                except ImportError:
-                    # في حالة عدم توفر المكتبات، استخدم عكس بسيط
-                    return text[::-1]
-            
-            # محاولة تحميل خط عربي من النظام
-            arabic_font_registered = False
-            try:
-                font_paths = [
-                    r"C:\Windows\Fonts\arial.ttf",
-                    r"C:\Windows\Fonts\tahoma.ttf",
-                    r"C:\Windows\Fonts\arialuni.ttf",
-                ]
-                
-                for font_path in font_paths:
-                    if os.path.exists(font_path):
-                        pdfmetrics.registerFont(TTFont('Arabic', font_path))
-                        arabic_font_registered = True
-                        break
-            except:
-                pass
-            
-            # إنشاء ملف PDF
-            doc = SimpleDocTemplate(path, pagesize=A4)
-            elements = []
-            
-            # الأنماط
-            styles = getSampleStyleSheet()
-            
-            # عنوان الدفتر
-            title = Paragraph("<b>Customer Ledger Report</b>", styles['Title'])
-            elements.append(title)
-            elements.append(Spacer(1, 0.3*cm))
-            
-            # معلومات العميل
-            customer_name_fixed = fix_arabic_text(self.customer.name) if arabic_font_registered else self.customer.name
-            customer_id_fixed = fix_arabic_text(self.customer.id) if arabic_font_registered else self.customer.id
-            
-            if arabic_font_registered:
-                customer_info = Paragraph(
-                    f"<b>Customer Name:</b> <font name='Arabic'>{customer_name_fixed}</font><br/>"
-                    f"<b>Customer ID:</b> <font name='Arabic'>{customer_id_fixed}</font><br/>"
-                    f"<b>Total Balance:</b> {format_currency_pdf(self.summary.balance_decimal)}",
-                    styles['Normal']
-                )
-            else:
-                customer_info = Paragraph(
-                    f"<b>Customer Name:</b> {self.customer.name}<br/>"
-                    f"<b>Customer ID:</b> {self.customer.id}<br/>"
-                    f"<b>Total Balance:</b> {format_currency_pdf(self.summary.balance_decimal)}",
-                    styles['Normal']
-                )
-            elements.append(customer_info)
-            elements.append(Spacer(1, 0.5*cm))
-            
-            # البيانات
-            data = [
-                ["Date/Time", "Type", "Description", "Amount"]
-            ]
-            
-            for entry in self.entries:
-                entry_type = "Debt" if entry.type == "purchase" else "Payment"
-                desc_fixed = fix_arabic_text(entry.desc) if arabic_font_registered else entry.desc
-                data.append([
-                    format_datetime_arabic(entry.datetime),
-                    entry_type,
-                    desc_fixed,
-                    format_currency_pdf(entry.amount_decimal)
-                ])
-            
-            # إنشاء الجدول
-            table = Table(data)
-            
-            if arabic_font_registered:
-                table_style = TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTNAME', (0, 1), (2, -1), 'Arabic'),  # استخدام الخط العربي للوصف
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
-                    ('FONTSIZE', (0, 1), (-1, -1), 11),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ])
-            else:
-                table_style = TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ])
-            
-            table.setStyle(table_style)
-            elements.append(table)
-            elements.append(Spacer(1, 1*cm))
-            
-            # تذييل مع التاريخ
-            footer = Paragraph(
-                f"<b>Generated:</b> {datetime.now().strftime('%Y/%m/%d %I:%M %p')}",
-                styles['Normal']
-            )
-            elements.append(footer)
-            
-            # بناء PDF
-            doc.build(elements)
-            
-        except ImportError:
-            raise Exception("تصدير PDF يتطلب مكتبة reportlab. يرجى استخدام CSV أو JSON بدلاً من ذلك.")
+        """
+        تصدير كشف الحساب PDF
+        Export the statement as PDF
+
+        يمرّ على محرّك Qt لا ReportLab: QTextDocument هو نفسه محرّك النص
+        الذي يرسم الواجهة، فيخرج العربي متصلاً وباتجاه صحيح. المسار القديم
+        كان يقع على `text[::-1]` عند غياب مكتبات التشكيل، فتخرج العربية
+        مقلوبة، وكانت عناوين التقرير كلها إنجليزية في تطبيق عربي.
+        """
+        from core.reports import PAPER_A4
+        from .printing import export_pdf
+
+        export_pdf(self.build_report_html(PAPER_A4), path, paper=PAPER_A4)
     
     def export_to_excel(self, path: str):
         """تصدير إلى Excel"""

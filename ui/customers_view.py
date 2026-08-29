@@ -54,6 +54,12 @@ class CustomersView(QWidget):
         self.refresh_btn.clicked.connect(self.refresh)
         top_bar.addWidget(self.refresh_btn)
         
+        # زر الطباعة
+        self.print_btn = QPushButton("🖨️ طباعة")
+        self.print_btn.setToolTip("طباعة كشف أرصدة كل العملاء، أو حفظه PDF")
+        self.print_btn.clicked.connect(self.print_report)
+        top_bar.addWidget(self.print_btn)
+
         # زر إضافة عميل
         self.add_customer_btn = QPushButton("+ إضافة عميل")
         self.add_customer_btn.clicked.connect(self.add_customer)
@@ -113,7 +119,8 @@ class CustomersView(QWidget):
         
         bottom_bar.addStretch()
         
-        self.total_debt_label = QLabel("إجمالي الديون: 0.00 ج.م")
+        self.total_debt_label = QLabel(
+            f"إجمالي الديون: {format_currency(Decimal('0'))}")
         bottom_bar.addWidget(self.total_debt_label)
         
         layout.addLayout(bottom_bar)
@@ -406,3 +413,51 @@ class CustomersView(QWidget):
             QMessageBox.warning(self, "خطأ", "لم يتم العثور على العميل")
         except Exception as e:
             QMessageBox.warning(self, "خطأ", f"فشل في حذف العميل: {str(e)}")
+
+    def visible_customers(self) -> List[Customer]:
+        """
+        العملاء كما يظهرون على الشاشة الآن — بترتيب الجدول وتصفيته
+        Customers exactly as currently displayed: same filter, same order
+
+        التقرير المطبوع يطابق ما يراه المستخدم، فلا يفاجئه بترتيب آخر.
+        """
+        by_id = {c.id: c for c in self.customers}
+        ordered = []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item is None:
+                continue
+            customer = by_id.get(item.data(Qt.UserRole))
+            if customer is not None:
+                ordered.append(customer)
+        return ordered
+
+    def print_report(self):
+        """طباعة كشف أرصدة العملاء أو حفظه PDF"""
+        from .print_dialog import PrintOptionsDialog
+        from core.reports import build_customers_report
+
+        customers = self.visible_customers()
+        if not customers:
+            QMessageBox.information(self, "لا توجد بيانات",
+                                    "لا يوجد عملاء لطباعتهم.")
+            return
+
+        summaries = self.summaries
+
+        PrintOptionsDialog(
+            build_html=lambda paper: build_customers_report(
+                customers, summaries, self.report_context(), paper),
+            storage=self.storage,
+            title="طباعة كشف أرصدة العملاء",
+            default_filename="كشف-أرصدة-العملاء",
+            parent=self,
+        ).exec()
+
+    def report_context(self):
+        """معلومات المحل من الإعدادات"""
+        from core.reports import ReportContext
+        return ReportContext(
+            shop_name=self.storage.get_setting("shop_name", "محل الخضار والفواكه"),
+            shop_phone=self.storage.get_setting("shop_phone", ""),
+        )
