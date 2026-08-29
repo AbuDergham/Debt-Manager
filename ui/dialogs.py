@@ -11,7 +11,7 @@ from PySide6.QtGui import QDoubleValidator
 from decimal import Decimal
 from datetime import datetime
 from core.models import Entry, PaymentMethod, EntryType
-from core.utils import validate_customer_id, str_to_decimal
+from core.utils import validate_customer_id
 
 
 class AddCustomerDialog(QDialog):

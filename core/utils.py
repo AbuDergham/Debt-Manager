@@ -2,13 +2,11 @@
 أدوات مساعدة للتطبيق
 Utility functions for the application
 """
-import os
 import sys
 import hashlib
 from pathlib import Path
 from decimal import Decimal
 from datetime import datetime
-from typing import Optional
 
 
 def get_base_path() -> Path:
@@ -107,14 +105,6 @@ def format_datetime_arabic(dt: datetime) -> str:
     """
     # 12-hour format with AM/PM after time
     return dt.strftime("%Y/%m/%d %I:%M %p")
-
-
-def format_date_arabic(dt: datetime) -> str:
-    """
-    تنسيق التاريخ فقط بصيغة عربية
-    Format date only in Arabic-friendly format
-    """
-    return dt.strftime("%Y/%m/%d")
 
 
 def hash_password(password: str) -> str:

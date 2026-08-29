@@ -5,7 +5,7 @@ Customers list view
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
     QTableWidgetItem, QLineEdit, QPushButton, QLabel,
-    QHeaderView, QMessageBox, QMenu, QInputDialog
+    QHeaderView, QMessageBox, QMenu
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QColor, QAction
@@ -388,39 +388,6 @@ class CustomersView(QWidget):
                 )
             except Exception as e:
                 QMessageBox.warning(self, "خطأ", f"فشل في تحديث العميل: {str(e)}")
-    
-    def edit_customer_name(self, customer_id: str, old_name: str):
-        """
-        تعديل اسم العميل
-        Edit customer name
-        """
-        new_name, ok = QInputDialog.getText(
-            self, "تعديل اسم العميل",
-            "الاسم الجديد:",
-            QLineEdit.Normal,
-            old_name
-        )
-        
-        if ok and new_name.strip():
-            new_name = new_name.strip()
-            
-            # تحديث الاسم
-            customers = self.storage.load_customers()
-            for customer in customers:
-                if customer.id == customer_id:
-                    customer.name = new_name
-                    break
-            
-            # حفظ التغييرات
-            self.storage.save_customers(customers)
-            
-            # إعادة تحميل البيانات
-            self.load_data()
-            
-            QMessageBox.information(
-                self, "نجح",
-                f"تم تعديل اسم العميل إلى '{new_name}'"
-            )
     
     def delete_customer(self, customer_id: str, customer_name: str):
         """

@@ -334,5 +334,5 @@ This is a custom application for a fruits & vegetables store. Free to use and mo
 
 ---
 
-**Version:** 1.0.0  
+**Version:** 2.0.0  
 **Last Updated:** 2025-12-11
