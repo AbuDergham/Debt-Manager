@@ -9,11 +9,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
-from decimal import Decimal
 from datetime import datetime
 
 from core.storage import StorageManager
-from core.models import Supplier, SupplierPayment
+from core.models import Supplier
 from core.supplier_summaries import SupplierSummaryEngine
 from core.utils import format_currency, format_datetime_arabic
 
@@ -225,7 +224,6 @@ class SupplierLedgerView(QWidget):
     
     def export_ledger(self):
         """تصدير كشف الحساب"""
-        from .dialogs import ExportDialog
         from PySide6.QtWidgets import QFileDialog
         
         # اختيار صيغة التصدير

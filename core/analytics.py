@@ -7,10 +7,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Any
 from collections import defaultdict
 
-from .models import (
-    Entry, Customer,
-    Supplier, PurchaseItem, SupplierPayment, Check
-)
+from .models import Entry, Customer, Supplier
 from .storage import StorageManager
 
 
@@ -22,40 +19,6 @@ class AnalyticsEngine:
     
     def __init__(self, storage: StorageManager):
         self.storage = storage
-    
-    def get_monthly_sales(self, year: int) -> Dict[int, Decimal]:
-        """
-        الحصول على المبيعات الشهرية لسنة معينة
-        Get monthly sales for a given year
-        
-        Returns: {month: total_sales}
-        """
-        entries = self.storage.load_entries()
-        monthly = defaultdict(lambda: Decimal("0"))
-        
-        for entry in entries:
-            if entry.type == "purchase":
-                dt = entry.datetime
-                if dt.year == year:
-                    monthly[dt.month] += entry.amount_decimal
-        
-        return dict(monthly)
-    
-    def get_monthly_payments(self, year: int) -> Dict[int, Decimal]:
-        """
-        الحصول على المدفوعات الشهرية لسنة معينة
-        Get monthly payments for a given year
-        """
-        entries = self.storage.load_entries()
-        monthly = defaultdict(lambda: Decimal("0"))
-        
-        for entry in entries:
-            if entry.type == "payment":
-                dt = entry.datetime
-                if dt.year == year:
-                    monthly[dt.month] += entry.amount_decimal
-        
-        return dict(monthly)
     
     def get_top_customers_by_balance(self, limit: int = 5) -> List[Tuple[Customer, Decimal]]:
         """

@@ -2,16 +2,11 @@
 عرض قائمة الموردين
 Suppliers list view
 """
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QTableWidget, QTableWidgetItem,
-    QMenu, QMessageBox, QHeaderView, QFrame
-)
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QTableWidget, QTableWidgetItem, QMenu, QMessageBox, QHeaderView
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QAction
 
 from core.storage import StorageManager
-from core.models import Supplier
 from core.supplier_summaries import SupplierSummaryEngine
 from core.utils import format_currency
 

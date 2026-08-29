@@ -2,12 +2,8 @@
 حوار البحث الشامل
 Global search dialog
 """
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
-    QTableWidget, QTableWidgetItem, QLabel, QComboBox,
-    QDateTimeEdit, QGroupBox, QFormLayout, QHeaderView
-)
-from PySide6.QtCore import Qt, Signal, QDateTime
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QLabel, QComboBox, QGroupBox, QFormLayout, QHeaderView
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from decimal import Decimal
 from datetime import datetime

@@ -2,15 +2,11 @@
 عرض دفتر العميل
 Customer ledger view
 """
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
-    QTableWidgetItem, QPushButton, QLabel, QGroupBox,
-    QHeaderView, QMessageBox, QFileDialog, QMenu
-)
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, QPushButton, QLabel, QGroupBox, QHeaderView, QMessageBox, QMenu
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QColor, QAction
 from decimal import Decimal
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List
 import csv
 import json

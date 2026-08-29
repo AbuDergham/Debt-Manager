@@ -2,22 +2,14 @@
 عرض فواتير الشراء (الطلبيات)
 Purchase orders view
 """
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QTableWidget, QTableWidgetItem,
-    QComboBox, QHeaderView, QFrame, QMessageBox,
-    QDateEdit, QCheckBox, QFormLayout, QGroupBox,
-    QSplitter, QMenu
-)
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QTableWidget, QTableWidgetItem, QComboBox, QHeaderView, QMessageBox, QDateEdit, QGroupBox, QSplitter, QMenu
 from PySide6.QtCore import Qt, Signal, QDate
 from PySide6.QtGui import QFont, QDoubleValidator, QAction
 from decimal import Decimal
 from datetime import datetime
 
 from core.storage import StorageManager
-from core.models import (
-    Supplier, PurchaseOrder, PurchaseItem
-)
+from core.models import PurchaseOrder, PurchaseItem
 from core.supplier_summaries import SupplierSummaryEngine
 from core.utils import format_currency, generate_order_id, format_datetime_arabic
 

@@ -1,20 +1,13 @@
 """
 نوافذ الحوار - Dialogs
 """
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLineEdit, QPushButton, QComboBox, QDateTimeEdit,
-    QLabel, QMessageBox, QFileDialog, QTextEdit, QDateEdit
-)
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QPushButton, QComboBox, QDateTimeEdit, QLabel, QMessageBox, QFileDialog, QTextEdit
 from PySide6.QtCore import Qt, QDateTime, QDate
 from PySide6.QtGui import QDoubleValidator
 from decimal import Decimal
 from datetime import datetime
-from core.models import (
-    Entry, PaymentMethod, EntryType,
-    Supplier, SupplierPayment, Check
-)
-from core.utils import validate_customer_id, str_to_decimal
+from core.models import Entry, PaymentMethod, EntryType, Supplier, SupplierPayment
+from core.utils import validate_customer_id
 
 
 class AddCustomerDialog(QDialog):

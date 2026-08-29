@@ -4,12 +4,9 @@ Supplier summaries calculation engine
 """
 from decimal import Decimal
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict
 
-from .models import (
-    Supplier, PurchaseItem, SupplierPayment,
-    SupplierSummary, Check
-)
+from .models import Supplier, SupplierSummary
 from .storage import StorageManager
 
 

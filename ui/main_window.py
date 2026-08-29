@@ -5,7 +5,6 @@ Main application window
 from PySide6.QtWidgets import (
     QMainWindow, QStackedWidget, QMessageBox, QInputDialog
 )
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from core.storage import StorageManager
 from core.backup import create_backup, AutoBackupManager

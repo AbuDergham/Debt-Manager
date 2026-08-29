@@ -2,21 +2,16 @@
 عرض نظام الشيكات
 Checks management view
 """
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QTableWidget, QTableWidgetItem,
-    QComboBox, QHeaderView, QFrame, QMessageBox,
-    QDateEdit, QFormLayout, QDialog, QMenu, QTextEdit
-)
-from PySide6.QtCore import Qt, Signal, QDate, QDateTime
-from PySide6.QtGui import QFont, QDoubleValidator, QAction
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QTableWidget, QTableWidgetItem, QComboBox, QHeaderView, QFrame, QMessageBox, QDateEdit, QFormLayout, QDialog, QTextEdit
+from PySide6.QtCore import Qt, Signal, QDate
+from PySide6.QtGui import QFont, QDoubleValidator
 from decimal import Decimal
 from datetime import datetime, timedelta
 
 from core.storage import StorageManager
-from core.models import Check, Supplier
+from core.models import Check
 from core.supplier_summaries import SupplierSummaryEngine
-from core.utils import format_currency, generate_check_id, format_datetime_arabic
+from core.utils import format_currency, generate_check_id
 
 
 class AddCheckDialog(QDialog):

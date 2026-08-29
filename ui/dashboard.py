@@ -2,12 +2,8 @@
 لوحة المعلومات
 Dashboard view with charts and statistics
 """
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QGroupBox, QGridLayout, QPushButton, QComboBox,
-    QScrollArea, QFrame
-)
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QPushButton, QComboBox, QScrollArea, QFrame
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
 from decimal import Decimal
 from datetime import datetime, timedelta
@@ -18,7 +14,6 @@ warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
 
 from core.storage import StorageManager
 from core.analytics import AnalyticsEngine
