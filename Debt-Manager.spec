@@ -6,11 +6,13 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('icon.ico', '.')],
-    hiddenimports=[],
+    # الطباعة تُحمَّل عبر Qt، وPyInstaller لا يكتشفها من الاستيراد الكسول
+    hiddenimports=['PySide6.QtPrintSupport'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # reportlab لم يعد مستخدماً (استُبدل بمحرّك Qt)، ومكتبات التشكيل معه
+    excludes=['reportlab', 'arabic_reshaper', 'bidi', 'tkinter', 'PyQt5', 'PyQt6'],
     noarchive=False,
     optimize=0,
 )
