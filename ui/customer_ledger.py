@@ -16,6 +16,7 @@ from core.storage import StorageManager
 from core.summaries import calculate_customer_summary, calculate_running_balances
 from core.utils import format_currency, format_datetime_arabic
 from .dialogs import AddEntryDialog, ExportDialog, EditEntryDialog
+from .table_items import DateTimeItem, NumericItem, sorted_table
 
 
 class CustomerLedgerView(QWidget):
@@ -267,51 +268,57 @@ class CustomerLedgerView(QWidget):
         else:
             filtered_entries = self.entries
         
-        # حساب الأرصدة التراكمية
-        # ملاحظة: نحتاج لحساب الأرصدة من البداية، لذا نستخدم جميع الإدخالات
-        # ولكن نعرض فقط المصفاة
+        # حساب الأرصدة التراكمية من كل الحركات (لا المصفاة)، لأن الرصيد
+        # التراكمي لا معنى له إلا بترتيب زمني كامل
         entries_sorted_asc = sorted(self.entries, key=lambda e: e.datetime)
         running_balances = calculate_running_balances(entries_sorted_asc)
-        
-        # إنشاء قاموس للأرصدة
-        balance_map = {}
-        for entry, balance in zip(entries_sorted_asc, running_balances):
-            balance_map[id(entry)] = balance
-        
-        # تحديث الجدول
-        self.table.setRowCount(len(filtered_entries))
-        
-        for row, entry in enumerate(filtered_entries):
-            # التاريخ والوقت
-            date_item = QTableWidgetItem(format_datetime_arabic(entry.datetime))
-            self.table.setItem(row, 0, date_item)
-            
-            # النوع
-            type_text = "دين" if entry.type == "purchase" else "دفع"
-            type_item = QTableWidgetItem(type_text)
-            if entry.type == "purchase":
-                type_item.setForeground(QColor(220, 53, 69))  # أحمر
-            else:
-                type_item.setForeground(QColor(40, 167, 69))  # أخضر
-            self.table.setItem(row, 1, type_item)
-            
-            # الوصف
-            desc_item = QTableWidgetItem(entry.desc)
-            self.table.setItem(row, 2, desc_item)
-            
-            # طريقة الدفع
-            payment_text = "نقداً" if entry.pay_method == "cash" else "تحويل"
-            payment_item = QTableWidgetItem(payment_text)
-            self.table.setItem(row, 3, payment_item)
-            
-            # المبلغ
-            amount_item = QTableWidgetItem(format_currency(entry.amount_decimal))
-            self.table.setItem(row, 4, amount_item)
-            
-            # الرصيد بعد العملية
-            balance = balance_map.get(id(entry), Decimal("0.00"))
-            balance_item = QTableWidgetItem(format_currency(balance))
-            self.table.setItem(row, 5, balance_item)
+        balance_map = {
+            entry.id: balance
+            for entry, balance in zip(entries_sorted_asc, running_balances)
+        }
+
+        # الترتيب معطَّل أثناء التعبئة، ثم يُعاد ويُطبَّق الافتراضي:
+        # التاريخ تنازلياً (الأحدث أولاً) — الترتيب الطبيعي للدفتر
+        with sorted_table(self.table, column=0, order=Qt.DescendingOrder):
+            self.table.setRowCount(len(filtered_entries))
+
+            for row, entry in enumerate(filtered_entries):
+                # التاريخ والوقت — ترتيب زمني لا نصّي
+                date_item = DateTimeItem(
+                    format_datetime_arabic(entry.datetime), entry.datetime
+                )
+                # معرّف الحركة على العمود الأول: بعد الترتيب لا يوافق رقم
+                # الصف موضع العنصر في القائمة، فالبحث يجب أن يكون بالمعرّف
+                date_item.setData(Qt.UserRole, entry.id)
+                self.table.setItem(row, 0, date_item)
+
+                # النوع
+                type_text = "دين" if entry.type == "purchase" else "دفع"
+                type_item = QTableWidgetItem(type_text)
+                if entry.type == "purchase":
+                    type_item.setForeground(QColor(220, 53, 69))  # أحمر
+                else:
+                    type_item.setForeground(QColor(40, 167, 69))  # أخضر
+                self.table.setItem(row, 1, type_item)
+
+                # الوصف
+                self.table.setItem(row, 2, QTableWidgetItem(entry.desc))
+
+                # طريقة الدفع
+                payment_text = "نقداً" if entry.pay_method == "cash" else "تحويل"
+                self.table.setItem(row, 3, QTableWidgetItem(payment_text))
+
+                # المبلغ — ترتيب رقمي
+                self.table.setItem(row, 4, NumericItem(
+                    format_currency(entry.amount_decimal), entry.amount_decimal
+                ))
+
+                # الرصيد بعد العملية — يُرتَّب زمنياً لا بقيمته، لأنه رصيد
+                # تراكمي لا معنى له إلا بالترتيب الزمني
+                balance = balance_map.get(entry.id, Decimal("0.00"))
+                self.table.setItem(row, 5, DateTimeItem(
+                    format_currency(balance), entry.datetime
+                ))
     
     def add_entry(self, entry_type: str = "purchase"):
         """إضافة إدخال جديد"""
@@ -628,27 +635,24 @@ class CustomerLedgerView(QWidget):
         row = self.table.rowAt(position.y())
         if row < 0:
             return
-        
-        # الحصول على الإدخال من القائمة المصفاة
-        now = datetime.now()
-        if self.current_filter == "today":
-            filtered_entries = [e for e in self.entries if e.datetime.date() == now.date()]
-        elif self.current_filter == "month":
-            filtered_entries = [e for e in self.entries if e.datetime.year == now.year and e.datetime.month == now.month]
-        else:
-            filtered_entries = self.entries
-        
-        if row >= len(filtered_entries):
+
+        # البحث بالمعرّف لا برقم الصف: مع تفعيل الترتيب لم يعد رقم الصف
+        # يوافق موضع الحركة في القائمة، فالفهرسة تفتح الحركة الخطأ
+        item = self.table.item(row, 0)
+        if item is None:
             return
-        
-        entry = filtered_entries[row]
-        
+
+        entry_id = item.data(Qt.UserRole)
+        entry = next((e for e in self.entries if e.id == entry_id), None)
+        if entry is None:
+            return
+
         # إنشاء القائمة
         menu = QMenu(self)
-        
+
         # تعديل الإدخال
         edit_action = QAction("✏️ تعديل", self)
-        edit_action.triggered.connect(lambda: self.edit_entry(entry, row))
+        edit_action.triggered.connect(lambda: self.edit_entry(entry))
         menu.addAction(edit_action)
         
         menu.addSeparator()

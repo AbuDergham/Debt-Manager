@@ -11,6 +11,7 @@ from datetime import datetime
 from core.storage import StorageManager
 from core.analytics import AnalyticsEngine
 from core.utils import format_currency, format_datetime_arabic
+from .table_items import ArabicTextItem, DateTimeItem, NumericItem, sorted_table
 
 
 class SearchDialog(QDialog):
@@ -139,36 +140,39 @@ class SearchDialog(QDialog):
     
     def display_results(self, results):
         """عرض نتائج البحث"""
-        self.table.setRowCount(len(results))
         self.results_label.setText(f"النتائج: {len(results)}")
-        
-        for row, (entry, customer) in enumerate(results):
-            # العميل
-            customer_item = QTableWidgetItem(customer.name)
-            customer_item.setData(Qt.UserRole, customer.id)
-            customer_item.setData(Qt.UserRole + 1, entry.date)
-            self.table.setItem(row, 0, customer_item)
-            
-            # النوع
-            type_text = "دين" if entry.type == "purchase" else "دفع"
-            type_item = QTableWidgetItem(type_text)
-            self.table.setItem(row, 1, type_item)
-            
-            # المبلغ
-            amount_item = QTableWidgetItem(format_currency(entry.amount_decimal))
-            self.table.setItem(row, 2, amount_item)
-            
-            # الوصف
-            desc_item = QTableWidgetItem(entry.desc)
-            self.table.setItem(row, 3, desc_item)
-            
-            # التاريخ
-            date_item = QTableWidgetItem(format_datetime_arabic(entry.datetime))
-            self.table.setItem(row, 4, date_item)
-            
-            # الملاحظات
-            notes_item = QTableWidgetItem(entry.notes if entry.notes else "-")
-            self.table.setItem(row, 5, notes_item)
+
+        # الافتراضي: التاريخ تنازلياً (العمود 4) — الأحدث أولاً
+        with sorted_table(self.table, column=4, order=Qt.DescendingOrder):
+            self.table.setRowCount(len(results))
+
+            for row, (entry, customer) in enumerate(results):
+                # العميل — ترتيب أبجدي عربي
+                customer_item = ArabicTextItem(customer.name)
+                customer_item.setData(Qt.UserRole, customer.id)
+                customer_item.setData(Qt.UserRole + 1, entry.date)
+                self.table.setItem(row, 0, customer_item)
+
+                # النوع
+                type_text = "دين" if entry.type == "purchase" else "دفع"
+                self.table.setItem(row, 1, QTableWidgetItem(type_text))
+
+                # المبلغ — ترتيب رقمي
+                self.table.setItem(row, 2, NumericItem(
+                    format_currency(entry.amount_decimal), entry.amount_decimal
+                ))
+
+                # الوصف
+                self.table.setItem(row, 3, QTableWidgetItem(entry.desc))
+
+                # التاريخ — ترتيب زمني
+                self.table.setItem(row, 4, DateTimeItem(
+                    format_datetime_arabic(entry.datetime), entry.datetime
+                ))
+
+                # الملاحظات
+                self.table.setItem(row, 5,
+                                   QTableWidgetItem(entry.notes if entry.notes else "-"))
     
     def on_row_double_clicked(self, index):
         """عند النقر المزدوج على سطر"""

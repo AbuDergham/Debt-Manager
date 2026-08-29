@@ -12,6 +12,7 @@ from core.storage import StorageManager
 from core.models import PurchaseOrder, PurchaseItem
 from core.supplier_summaries import SupplierSummaryEngine
 from core.utils import format_currency, generate_order_id, format_datetime_arabic
+from .table_items import DateTimeItem, NumericItem, sorted_table
 
 
 class PurchaseOrderView(QWidget):
@@ -453,28 +454,31 @@ class PurchaseOrderView(QWidget):
         elif period == "month":
             orders = [o for o in orders if o.datetime.year == now.year and o.datetime.month == now.month]
         
-        self.orders_table.setRowCount(len(orders))
-        
-        for row, order in enumerate(orders):
-            # التاريخ
-            date_item = QTableWidgetItem(format_datetime_arabic(order.datetime))
-            date_item.setData(Qt.UserRole, order.id)
-            self.orders_table.setItem(row, 0, date_item)
-            
-            # عدد البنود
-            order_items = [i for i in all_items if i.order_id == order.id]
-            count_item = QTableWidgetItem(str(len(order_items)))
-            self.orders_table.setItem(row, 1, count_item)
-            
-            # المجموع
-            order_total = sum(i.total_decimal for i in order_items)
-            total_item = QTableWidgetItem(format_currency(order_total))
-            total_item.setFont(QFont("Arial", 11, QFont.Bold))
-            self.orders_table.setItem(row, 2, total_item)
-            
-            # الملاحظات
-            notes_item = QTableWidgetItem(order.notes if order.notes else "-")
-            self.orders_table.setItem(row, 3, notes_item)
+        # الافتراضي: التاريخ تنازلياً (الأحدث أولاً)
+        with sorted_table(self.orders_table, column=0, order=Qt.DescendingOrder):
+            self.orders_table.setRowCount(len(orders))
+
+            for row, order in enumerate(orders):
+                # التاريخ — ترتيب زمني لا نصّي
+                date_item = DateTimeItem(
+                    format_datetime_arabic(order.datetime), order.datetime)
+                date_item.setData(Qt.UserRole, order.id)
+                self.orders_table.setItem(row, 0, date_item)
+
+                # عدد البنود — ترتيب رقمي
+                order_items = [i for i in all_items if i.order_id == order.id]
+                self.orders_table.setItem(
+                    row, 1, NumericItem(str(len(order_items)), len(order_items)))
+
+                # المجموع — ترتيب رقمي
+                order_total = sum(i.total_decimal for i in order_items)
+                total_item = NumericItem(format_currency(order_total), order_total)
+                total_item.setFont(QFont("Arial", 11, QFont.Bold))
+                self.orders_table.setItem(row, 2, total_item)
+
+                # الملاحظات
+                self.orders_table.setItem(row, 3, QTableWidgetItem(
+                    order.notes if order.notes else "-"))
     
     def show_order_context_menu(self, position):
         """عرض قائمة السياق للطلبية"""

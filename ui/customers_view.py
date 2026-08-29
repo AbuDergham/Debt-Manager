@@ -12,6 +12,7 @@ from core.storage import StorageManager
 from core.summaries import recalculate_all_summaries
 from core.utils import format_currency
 from .dialogs import AddCustomerDialog
+from .table_items import ArabicTextItem, NumericItem, sorted_table
 
 
 class CustomersView(QWidget):
@@ -148,46 +149,45 @@ class CustomersView(QWidget):
         else:
             filtered_customers = self.customers
         
-        # تحديث الجدول
-        self.table.setRowCount(len(filtered_customers))
-        
         total_debt = Decimal("0.00")
-        
-        for row, customer in enumerate(filtered_customers):
-            # الحصول على الملخص
-            summary = self.summaries.get(customer.id, Summary.empty())
-            
-            # اسم العميل
-            name_item = QTableWidgetItem(customer.name)
-            name_item.setData(Qt.UserRole, customer.id)  # حفظ المعرف
-            self.table.setItem(row, 0, name_item)
-            
-            # الرصيد الحالي
-            balance = summary.balance_decimal
-            balance_item = QTableWidgetItem(format_currency(balance))
-            
-            # تلوين الرصيد (أحمر إذا كان موجب، أخضر إذا كان سالب)
-            if balance > 0:
-                balance_item.setForeground(QColor(220, 53, 69))  # أحمر
-            elif balance < 0:
-                balance_item.setForeground(QColor(40, 167, 69))  # أخضر
-            
-            self.table.setItem(row, 1, balance_item)
-            
-            # مبيعات اليوم
-            today_sales = summary.today_sales_decimal
-            today_item = QTableWidgetItem(format_currency(today_sales))
-            self.table.setItem(row, 2, today_item)
-            
-            # مبيعات الشهر
-            month_sales = summary.month_sales_decimal
-            month_item = QTableWidgetItem(format_currency(month_sales))
-            self.table.setItem(row, 3, month_item)
-            
-            # إضافة للديون الإجمالية
-            if balance > 0:
-                total_debt += balance
-        
+
+        # الترتيب معطَّل أثناء التعبئة، ثم يُعاد ويُطبَّق الافتراضي (أبجدي)
+        with sorted_table(self.table, column=0):
+            self.table.setRowCount(len(filtered_customers))
+
+            for row, customer in enumerate(filtered_customers):
+                summary = self.summaries.get(customer.id, Summary.empty())
+
+                # اسم العميل — ترتيب أبجدي عربي صحيح
+                name_item = ArabicTextItem(customer.name)
+                name_item.setData(Qt.UserRole, customer.id)  # حفظ المعرف
+                self.table.setItem(row, 0, name_item)
+
+                # الرصيد الحالي — ترتيب رقمي لا نصّي
+                balance = summary.balance_decimal
+                balance_item = NumericItem(format_currency(balance), balance)
+
+                # تلوين الرصيد (أحمر إذا كان موجب، أخضر إذا كان سالب)
+                if balance > 0:
+                    balance_item.setForeground(QColor(220, 53, 69))  # أحمر
+                elif balance < 0:
+                    balance_item.setForeground(QColor(40, 167, 69))  # أخضر
+
+                self.table.setItem(row, 1, balance_item)
+
+                today_sales = summary.today_sales_decimal
+                self.table.setItem(row, 2,
+                                   NumericItem(format_currency(today_sales), today_sales))
+
+                month_sales = summary.month_sales_decimal
+                self.table.setItem(row, 3,
+                                   NumericItem(format_currency(month_sales), month_sales))
+
+                # إضافة للديون الإجمالية
+                if balance > 0:
+                    total_debt += balance
+
+
         # تحديث التسميات السفلية
         self.total_customers_label.setText(f"إجمالي العملاء: {len(filtered_customers)}")
         self.total_debt_label.setText(f"إجمالي الديون: {format_currency(total_debt)}")

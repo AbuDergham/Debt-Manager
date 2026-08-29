@@ -9,6 +9,7 @@ from PySide6.QtGui import QFont, QAction
 from core.storage import StorageManager
 from core.supplier_summaries import SupplierSummaryEngine
 from core.utils import format_currency
+from .table_items import ArabicTextItem, NumericItem, sorted_table
 
 
 class SuppliersView(QWidget):
@@ -105,43 +106,37 @@ class SuppliersView(QWidget):
     
     def display_suppliers(self, suppliers):
         """عرض الموردين في الجدول"""
-        self.table.setRowCount(len(suppliers))
-        
+        from decimal import Decimal
+
         summaries = self.storage.load_supplier_summaries()
-        
-        for row, supplier in enumerate(suppliers):
-            # الاسم
-            name_item = QTableWidgetItem(supplier.name)
-            name_item.setData(Qt.UserRole, supplier.id)
-            name_item.setFont(QFont("Arial", 12))
-            self.table.setItem(row, 0, name_item)
-            
-            # الهاتف
-            phone_item = QTableWidgetItem(supplier.phone if supplier.phone else "-")
-            self.table.setItem(row, 1, phone_item)
-            
-            # الرصيد
-            summary = summaries.get(supplier.id)
-            if summary:
-                balance = summary.balance_decimal
-            else:
-                balance = 0
-            
-            from decimal import Decimal
-            balance_text = format_currency(Decimal(str(balance)))
-            balance_item = QTableWidgetItem(balance_text)
-            balance_item.setFont(QFont("Arial", 12, QFont.Bold))
-            
-            if balance > 0:
-                balance_item.setForeground(Qt.red)
-            else:
-                balance_item.setForeground(Qt.darkGreen)
-            
-            self.table.setItem(row, 2, balance_item)
-            
-            # الملاحظات
-            notes_item = QTableWidgetItem(supplier.notes if supplier.notes else "-")
-            self.table.setItem(row, 3, notes_item)
+
+        # الافتراضي: أبجدي حسب الاسم
+        with sorted_table(self.table, column=0):
+            self.table.setRowCount(len(suppliers))
+
+            for row, supplier in enumerate(suppliers):
+                # الاسم — ترتيب أبجدي عربي صحيح
+                name_item = ArabicTextItem(supplier.name)
+                name_item.setData(Qt.UserRole, supplier.id)
+                name_item.setFont(QFont("Arial", 12))
+                self.table.setItem(row, 0, name_item)
+
+                # الهاتف
+                self.table.setItem(row, 1, QTableWidgetItem(
+                    supplier.phone if supplier.phone else "-"))
+
+                # الرصيد — ترتيب رقمي لا نصّي
+                summary = summaries.get(supplier.id)
+                balance = summary.balance_decimal if summary else Decimal("0")
+
+                balance_item = NumericItem(format_currency(balance), balance)
+                balance_item.setFont(QFont("Arial", 12, QFont.Bold))
+                balance_item.setForeground(Qt.red if balance > 0 else Qt.darkGreen)
+                self.table.setItem(row, 2, balance_item)
+
+                # الملاحظات
+                self.table.setItem(row, 3, QTableWidgetItem(
+                    supplier.notes if supplier.notes else "-"))
     
     def update_stats(self):
         """تحديث الإحصائيات"""

@@ -15,6 +15,7 @@ from core.storage import StorageManager
 from core.models import Supplier
 from core.supplier_summaries import SupplierSummaryEngine
 from core.utils import format_currency, format_datetime_arabic
+from .table_items import DateTimeItem, NumericItem, sorted_table
 
 
 class SupplierLedgerView(QWidget):
@@ -163,44 +164,40 @@ class SupplierLedgerView(QWidget):
                 and datetime.fromisoformat(e['date']).month == now.month
             ]
         
-        # عرض في الجدول
-        self.table.setRowCount(len(running_entries))
-        
-        for row, entry in enumerate(running_entries):
-            # التاريخ
-            dt = datetime.fromisoformat(entry['date'])
-            date_item = QTableWidgetItem(format_datetime_arabic(dt))
-            self.table.setItem(row, 0, date_item)
-            
-            # النوع
-            type_text = "🛒 شراء" if entry['type'] == 'purchase' else "💰 دفعة"
-            type_item = QTableWidgetItem(type_text)
-            self.table.setItem(row, 1, type_item)
-            
-            # الوصف
-            desc_item = QTableWidgetItem(entry['description'])
-            self.table.setItem(row, 2, desc_item)
-            
-            # المبلغ
-            amount_text = format_currency(entry['amount'])
-            amount_item = QTableWidgetItem(amount_text)
-            amount_item.setFont(QFont("Arial", 11, QFont.Bold))
-            if entry['type'] == 'purchase':
-                amount_item.setForeground(Qt.red)
-            else:
-                amount_item.setForeground(Qt.darkGreen)
-            self.table.setItem(row, 3, amount_item)
-            
-            # الرصيد التراكمي
-            balance_text = format_currency(entry['running_balance'])
-            balance_item = QTableWidgetItem(balance_text)
-            balance_item.setFont(QFont("Arial", 11, QFont.Bold))
-            if entry['running_balance'] > 0:
-                balance_item.setForeground(Qt.red)
-            else:
-                balance_item.setForeground(Qt.darkGreen)
-            self.table.setItem(row, 4, balance_item)
-    
+        # عرض في الجدول — الافتراضي: التاريخ تنازلياً (الأحدث أولاً)
+        with sorted_table(self.table, column=0, order=Qt.DescendingOrder):
+            self.table.setRowCount(len(running_entries))
+
+            for row, entry in enumerate(running_entries):
+                # التاريخ — ترتيب زمني لا نصّي
+                dt = datetime.fromisoformat(entry['date'])
+                self.table.setItem(row, 0, DateTimeItem(
+                    format_datetime_arabic(dt), dt))
+
+                # النوع
+                type_text = "🛒 شراء" if entry['type'] == 'purchase' else "💰 دفعة"
+                self.table.setItem(row, 1, QTableWidgetItem(type_text))
+
+                # الوصف
+                self.table.setItem(row, 2, QTableWidgetItem(entry['description']))
+
+                # المبلغ — ترتيب رقمي
+                amount_item = NumericItem(
+                    format_currency(entry['amount']), entry['amount'])
+                amount_item.setFont(QFont("Arial", 11, QFont.Bold))
+                amount_item.setForeground(
+                    Qt.red if entry['type'] == 'purchase' else Qt.darkGreen)
+                self.table.setItem(row, 3, amount_item)
+
+                # الرصيد التراكمي — يُرتَّب زمنياً لا بقيمته، لأنه تراكمي
+                # فلا معنى له إلا بالترتيب الزمني
+                balance_item = DateTimeItem(
+                    format_currency(entry['running_balance']), dt)
+                balance_item.setFont(QFont("Arial", 11, QFont.Bold))
+                balance_item.setForeground(
+                    Qt.red if entry['running_balance'] > 0 else Qt.darkGreen)
+                self.table.setItem(row, 4, balance_item)
+
     def on_filter_changed(self):
         """تغيير الفلتر"""
         self.current_filter = self.filter_combo.currentData()

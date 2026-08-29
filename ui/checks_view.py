@@ -12,6 +12,8 @@ from core.storage import StorageManager
 from core.models import Check
 from core.supplier_summaries import SupplierSummaryEngine
 from core.utils import format_currency, generate_check_id
+from core.utils import arabic_sort_key
+from .table_items import HeaderSortController
 
 
 class AddCheckDialog(QDialog):
@@ -312,9 +314,31 @@ class ChecksView(QWidget):
         if value_label:
             value_label.setText(value)
     
+    # مفاتيح ترتيب الشيكات لكل عمود. العمود 8 (الأزرار) غير مذكور
+    # عمداً — فلا يُرتَّب.
+    SORT_KEYS = {
+        0: lambda c: arabic_sort_key(c.check_number),
+        1: lambda c: arabic_sort_key(c.bank_name),
+        2: lambda c: c.amount_decimal,
+        3: lambda c: arabic_sort_key(c.party_name),
+        4: lambda c: c.direction,
+        5: lambda c: c.issue_datetime,
+        6: lambda c: c.due_datetime,
+        7: lambda c: c.status,
+    }
+
     def load_data(self):
         """تحميل البيانات"""
         self.all_checks = self.storage.load_checks()
+
+        # متحكّم الترتيب يُركَّب مرة واحدة. الافتراضي: تاريخ الاستحقاق
+        # تصاعدياً — الأقرب استحقاقاً أولاً، وهو ما يهمّ صاحب المحل.
+        if not hasattr(self, "_sorter"):
+            self._sorter = HeaderSortController(
+                self.table, self.SORT_KEYS, self.filter_checks,
+                default_column=6, default_desc=False,
+            )
+
         self.update_stats()
         self.filter_checks()
     
@@ -353,7 +377,15 @@ class ChecksView(QWidget):
         self.display_checks(checks)
     
     def display_checks(self, checks):
-        """عرض الشيكات في الجدول"""
+        """عرض الشيكات في الجدول (مرتَّبة حسب العمود الفعّال)"""
+        if hasattr(self, "_sorter"):
+            checks = self._sorter.apply(checks)
+
+        # مسح الودجات القديمة: setRowCount وحده لا يزيلها، فتبقى أزرار
+        # معلّقة تخصّ شيكات أخرى
+        for row in range(self.table.rowCount()):
+            self.table.removeCellWidget(row, 8)
+
         self.table.setRowCount(len(checks))
         
         for row, check in enumerate(checks):

@@ -3,7 +3,9 @@
 Utility functions for the application
 """
 import sys
+import uuid
 import hashlib
+import unicodedata
 from pathlib import Path
 from typing import Optional
 from decimal import Decimal
@@ -75,6 +77,46 @@ def ensure_data_folder(folder: Optional[Path] = None) -> Path:
             path.write_text(initial_content, encoding="utf-8")
 
     return data_folder
+
+
+# تطبيع الحروف العربية للترتيب الأبجدي.
+# ترتيب نقاط اليونيكود يضع أشكال الهمزة قبل الألف العادية، والتاء المربوطة
+# بين الباء والتاء — فيخرج «آدم | أحمد | إياد | ابراهيم» وهو غلط.
+_ARABIC_FOLD = str.maketrans({
+    "أ": "ا", "إ": "ا", "آ": "ا", "ٱ": "ا",   # أشكال الهمزة على الألف
+    "ؤ": "و", "ئ": "ي",                        # الهمزة على الواو والياء
+    "ة": "ه",                                  # التاء المربوطة
+    "ى": "ي",                                  # الألف المقصورة
+    "ـ": None,                                 # التطويل (كشيدة)
+})
+
+# نطاق الحروف العربية الأساسي
+_ARABIC_RANGE = ("ء", "ي")
+
+
+def arabic_sort_key(text: str) -> tuple[str, str]:
+    """
+    مفتاح ترتيب أبجدي عربي صحيح
+    Correct Arabic alphabetical sort key
+
+    يوحّد أشكال الهمزة والتاء المربوطة والألف المقصورة، ويحذف التشكيل
+    والتطويل. الترتيب: الفارغ ثم العربي ثم اللاتيني.
+
+    >>> sorted(["آدم", "أحمد", "ابراهيم"], key=arabic_sort_key)
+    ['ابراهيم', 'أحمد', 'آدم']
+    """
+    folded = unicodedata.normalize("NFKD", text or "")
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    folded = folded.translate(_ARABIC_FOLD).strip().casefold()
+
+    if not folded:
+        group = ""          # الفارغ يتصدّر
+    elif _ARABIC_RANGE[0] <= folded[0] <= _ARABIC_RANGE[1]:
+        group = "0"         # العربي — تطبيق عربي وكل الزبائن بأسماء عربية
+    else:
+        group = "1"         # اللاتيني وغيره
+
+    return (group, folded)
 
 
 def decimal_to_str(value: Decimal) -> str:
@@ -174,31 +216,41 @@ def validate_customer_id(customer_id: str) -> bool:
     return customer_id.replace("_", "").replace("-", "").isalnum()
 
 
+def _timestamped_id(prefix: str) -> str:
+    """
+    معرّف مقروء بالتاريخ والوقت، ولاحقة عشوائية تضمن التفرّد
+    Human-readable timestamped ID with a random suffix for uniqueness
+
+    اللاحقة ضرورية: دقة الثانية وحدها تعطي سجلّين أُنشئا في نفس الثانية
+    نفس المعرّف، ولا تفحص دوال الإضافة التكرار.
+    """
+    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    suffix = uuid.uuid4().hex[:6]
+    return f"{prefix}_{stamp}_{suffix}"
+
+
 def generate_order_id() -> str:
     """
     توليد معرف فريد لطلبية الشراء
     Generate unique purchase order ID
-    Format: PO_YYYYMMDD_HHMMSS
+    Format: PO_YYYYMMDD_HHMMSS_xxxxxx
     """
-    now = datetime.now()
-    return f"PO_{now.strftime('%Y%m%d_%H%M%S')}"
+    return _timestamped_id("PO")
 
 
 def generate_check_id() -> str:
     """
     توليد معرف فريد للشيك
     Generate unique check ID
-    Format: CHK_YYYYMMDD_HHMMSS
+    Format: CHK_YYYYMMDD_HHMMSS_xxxxxx
     """
-    now = datetime.now()
-    return f"CHK_{now.strftime('%Y%m%d_%H%M%S')}"
+    return _timestamped_id("CHK")
 
 
 def generate_payment_id() -> str:
     """
     توليد معرف فريد لدفعة مورد
     Generate unique supplier payment ID
-    Format: SP_YYYYMMDD_HHMMSS
+    Format: SP_YYYYMMDD_HHMMSS_xxxxxx
     """
-    now = datetime.now()
-    return f"SP_{now.strftime('%Y%m%d_%H%M%S')}"
+    return _timestamped_id("SP")
