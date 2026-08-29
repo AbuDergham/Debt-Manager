@@ -5,6 +5,7 @@ Utility functions for the application
 import sys
 import hashlib
 from pathlib import Path
+from typing import Optional
 from decimal import Decimal
 from datetime import datetime
 
@@ -35,64 +36,45 @@ def get_data_folder() -> Path:
     return get_base_path() / "data"
 
 
-def ensure_data_folder() -> None:
+# ملفات البيانات: الاسم المنطقي -> (اسم الملف، المحتوى الابتدائي)
+# مصدر واحد للحقيقة — يستخدمه ensure_data_folder و create_backup معاً.
+# إضافة ملف بيانات جديد = سطر واحد هنا.
+DATA_FILES: dict[str, tuple[str, str]] = {
+    "customers":          ("customers.json",           "[]"),
+    "entries":            ("entries.jsonl",            ""),
+    "summaries":          ("summaries.json",           "{}"),
+    "settings":           ("settings.json",
+                           '{"theme": "light", "auto_backup_interval": 200}'),
+    "suppliers":          ("suppliers.json",           "[]"),
+    "purchase_orders":    ("purchase_orders.json",     "[]"),
+    "purchase_items":     ("purchase_items.jsonl",     ""),
+    "supplier_payments":  ("supplier_payments.jsonl",  ""),
+    "supplier_summaries": ("supplier_summaries.json",  "{}"),
+    "checks":             ("checks.json",              "[]"),
+}
+
+
+def ensure_data_folder(folder: Optional[Path] = None) -> Path:
     """
-    التأكد من وجود مجلد البيانات وإنشائه إذا لم يكن موجوداً
-    Ensure data folder exists, create if it doesn't
+    التأكد من وجود مجلد البيانات وملفاته الأساسية
+    Ensure the data folder and its base files exist
+
+    Args:
+        folder: مجلد بيانات مخصص (للاختبارات). الافتراضي: مجلد الإنتاج.
+
+    Returns:
+        مسار مجلد البيانات
     """
-    data_folder = get_data_folder()
-    data_folder.mkdir(exist_ok=True)
-    
-    # إنشاء مجلد النسخ الاحتياطية
-    # Create backups folder
-    backups_folder = data_folder / "backups"
-    backups_folder.mkdir(exist_ok=True)
-    
-    # إنشاء الملفات الأساسية إذا لم تكن موجودة
-    # Create base files if they don't exist
-    customers_file = data_folder / "customers.json"
-    if not customers_file.exists():
-        customers_file.write_text("[]", encoding="utf-8")
-    
-    entries_file = data_folder / "entries.jsonl"
-    if not entries_file.exists():
-        entries_file.write_text("", encoding="utf-8")
-    
-    summaries_file = data_folder / "summaries.json"
-    if not summaries_file.exists():
-        summaries_file.write_text("{}", encoding="utf-8")
-    
-    # إنشاء ملف الإعدادات
-    # Create settings file
-    settings_file = data_folder / "settings.json"
-    if not settings_file.exists():
-        settings_file.write_text('{"theme": "light", "auto_backup_interval": 200}', encoding="utf-8")
-    
-    # === ملفات نظام الموردين الجديدة ===
-    # === New supplier system files ===
-    suppliers_file = data_folder / "suppliers.json"
-    if not suppliers_file.exists():
-        suppliers_file.write_text("[]", encoding="utf-8")
-    
-    purchase_orders_file = data_folder / "purchase_orders.json"
-    if not purchase_orders_file.exists():
-        purchase_orders_file.write_text("[]", encoding="utf-8")
-    
-    purchase_items_file = data_folder / "purchase_items.jsonl"
-    if not purchase_items_file.exists():
-        purchase_items_file.write_text("", encoding="utf-8")
-    
-    supplier_payments_file = data_folder / "supplier_payments.jsonl"
-    if not supplier_payments_file.exists():
-        supplier_payments_file.write_text("", encoding="utf-8")
-    
-    checks_file = data_folder / "checks.json"
-    if not checks_file.exists():
-        checks_file.write_text("[]", encoding="utf-8")
-    
-    supplier_summaries_file = data_folder / "supplier_summaries.json"
-    if not supplier_summaries_file.exists():
-        supplier_summaries_file.write_text("{}", encoding="utf-8")
+    data_folder = Path(folder) if folder is not None else get_data_folder()
+    data_folder.mkdir(parents=True, exist_ok=True)
+    (data_folder / "backups").mkdir(exist_ok=True)
+
+    for filename, initial_content in DATA_FILES.values():
+        path = data_folder / filename
+        if not path.exists():
+            path.write_text(initial_content, encoding="utf-8")
+
+    return data_folder
 
 
 def decimal_to_str(value: Decimal) -> str:

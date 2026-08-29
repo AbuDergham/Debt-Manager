@@ -6,56 +6,45 @@ import zipfile
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
-from .utils import get_data_folder
+from .utils import get_data_folder, DATA_FILES
 
 
-def create_backup(backup_folder: Optional[Path] = None) -> Path:
+def create_backup(
+    backup_folder: Optional[Path] = None,
+    data_folder: Optional[Path] = None,
+    prefix: str = "backup",
+) -> Path:
     """
     إنشاء نسخة احتياطية من ملفات البيانات
     Create backup of data files
-    
+
     Args:
-        backup_folder: مجلد النسخة الاحتياطية (افتراضياً: data/backups/)
-    
+        backup_folder: مجلد النسخة الاحتياطية (افتراضياً: <data>/backups/)
+        data_folder: مجلد البيانات المصدر (للاختبارات)
+        prefix: بادئة اسم الملف (مثلاً "pre-migration-v2")
+
     Returns:
         مسار ملف ZIP الناتج
     """
-    data_folder = get_data_folder()
-    
+    source_folder = Path(data_folder) if data_folder is not None else get_data_folder()
+
     if backup_folder is None:
-        backup_folder = data_folder / "backups"
-    
-    # التأكد من وجود مجلد النسخ الاحتياطية
+        backup_folder = source_folder / "backups"
+
     backup_folder = Path(backup_folder)
     backup_folder.mkdir(parents=True, exist_ok=True)
-    
-    # اسم الملف بالتاريخ والوقت
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_filename = f"backup_{timestamp}.zip"
-    backup_path = backup_folder / backup_filename
-    
-    # الملفات التي سيتم نسخها
-    files_to_backup = [
-        "customers.json",
-        "entries.jsonl",
-        "summaries.json",
-        "settings.json",
-        "suppliers.json",
-        "purchase_orders.json",
-        "purchase_items.jsonl",
-        "supplier_payments.jsonl",
-        "checks.json",
-        "supplier_summaries.json"
-    ]
-    
-    # إنشاء ملف ZIP
+    backup_path = backup_folder / f"{prefix}_{timestamp}.zip"
+
+    # قائمة الملفات من DATA_FILES — مصدر واحد للحقيقة، فلا تُنسى
+    # ملفات جديدة عند إضافتها
     with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for filename in files_to_backup:
-            file_path = data_folder / filename
+        for filename, _ in DATA_FILES.values():
+            file_path = source_folder / filename
             if file_path.exists():
-                # إضافة الملف إلى ZIP (بدون مسار المجلد)
                 zipf.write(file_path, arcname=filename)
-    
+
     return backup_path
 
 
@@ -99,9 +88,10 @@ def list_backups(backup_folder: Optional[Path] = None) -> list[Path]:
     if not backup_folder.exists():
         return []
     
-    # الحصول على جميع ملفات ZIP وترتيبها حسب التاريخ (الأحدث أولاً)
+    # كل ملفات ZIP، لا "backup_*" فقط — النسخ التلقائية تأخذ بادئات أخرى
+    # مثل "pre-migration-v2_" و "pre-delete_"
     backups = sorted(
-        backup_folder.glob("backup_*.zip"),
+        backup_folder.glob("*.zip"),
         key=lambda p: p.stat().st_mtime,
         reverse=True
     )
@@ -174,15 +164,9 @@ def export_all_data(export_path: Path) -> Path:
         export_path.mkdir(parents=True, exist_ok=True)
         
         data_folder = get_data_folder()
-        files_to_export = [
-            "customers.json",
-            "entries.jsonl",
-            "summaries.json",
-            "settings.json"
-        ]
-        
+
         import shutil
-        for filename in files_to_export:
+        for filename, _ in DATA_FILES.values():
             src = data_folder / filename
             if src.exists():
                 dst = export_path / filename

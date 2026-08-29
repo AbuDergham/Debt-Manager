@@ -12,7 +12,7 @@ from .models import (
     Supplier, PurchaseOrder, PurchaseItem,
     SupplierPayment, SupplierSummary, Check
 )
-from .utils import get_data_folder, ensure_data_folder
+from .utils import ensure_data_folder
 
 
 def atomic_write_json(path: Path, data: Any) -> None:
@@ -130,14 +130,26 @@ class StorageManager:
     Main storage manager
     """
     
-    def __init__(self):
-        """تهيئة مدير التخزين - Initialize storage manager"""
-        ensure_data_folder()
-        self.data_folder = get_data_folder()
+    def __init__(self, data_folder: Optional[Path] = None):
+        """
+        تهيئة مدير التخزين - Initialize storage manager
+
+        Args:
+            data_folder: مجلد بيانات مخصص (للاختبارات).
+                         الافتراضي: مجلد الإنتاج.
+        """
+        self.data_folder = ensure_data_folder(data_folder)
+
         self.customers_file = self.data_folder / "customers.json"
         self.entries_file = self.data_folder / "entries.jsonl"
         self.summaries_file = self.data_folder / "summaries.json"
         self.settings_file = self.data_folder / "settings.json"
+        self.suppliers_file = self.data_folder / "suppliers.json"
+        self.purchase_orders_file = self.data_folder / "purchase_orders.json"
+        self.purchase_items_file = self.data_folder / "purchase_items.jsonl"
+        self.supplier_payments_file = self.data_folder / "supplier_payments.jsonl"
+        self.supplier_summaries_file = self.data_folder / "supplier_summaries.json"
+        self.checks_file = self.data_folder / "checks.json"
     
     # ============ إدارة العملاء - Customer Management ============
     
@@ -302,8 +314,7 @@ class StorageManager:
         تحميل جميع الموردين
         Load all suppliers
         """
-        suppliers_file = self.data_folder / "suppliers.json"
-        data = read_json(suppliers_file, default=[])
+        data = read_json(self.suppliers_file, default=[])
         return [Supplier.from_dict(s) for s in data]
     
     def save_suppliers(self, suppliers: List[Supplier]) -> None:
@@ -311,9 +322,8 @@ class StorageManager:
         حفظ جميع الموردين
         Save all suppliers
         """
-        suppliers_file = self.data_folder / "suppliers.json"
         data = [s.to_dict() for s in suppliers]
-        atomic_write_json(suppliers_file, data)
+        atomic_write_json(self.suppliers_file, data)
     
     def add_supplier(self, supplier: Supplier) -> None:
         """
@@ -344,8 +354,7 @@ class StorageManager:
         تحميل جميع الطلبيات
         Load all purchase orders
         """
-        orders_file = self.data_folder / "purchase_orders.json"
-        data = read_json(orders_file, default=[])
+        data = read_json(self.purchase_orders_file, default=[])
         return [PurchaseOrder.from_dict(o) for o in data]
     
     def save_purchase_orders(self, orders: List[PurchaseOrder]) -> None:
@@ -353,9 +362,8 @@ class StorageManager:
         حفظ جميع الطلبيات
         Save all purchase orders
         """
-        orders_file = self.data_folder / "purchase_orders.json"
         data = [o.to_dict() for o in orders]
-        atomic_write_json(orders_file, data)
+        atomic_write_json(self.purchase_orders_file, data)
     
     def add_purchase_order(self, order: PurchaseOrder) -> None:
         """
@@ -384,8 +392,7 @@ class StorageManager:
         تحميل جميع بنود الشراء
         Load all purchase items
         """
-        items_file = self.data_folder / "purchase_items.jsonl"
-        data = read_jsonl(items_file)
+        data = read_jsonl(self.purchase_items_file)
         return [PurchaseItem.from_dict(item) for item in data]
     
     def add_purchase_item(self, item: PurchaseItem) -> None:
@@ -393,8 +400,7 @@ class StorageManager:
         إضافة بند شراء جديد
         Add new purchase item
         """
-        items_file = self.data_folder / "purchase_items.jsonl"
-        atomic_append_jsonl(items_file, item.to_dict())
+        atomic_append_jsonl(self.purchase_items_file, item.to_dict())
     
     def get_order_items(self, order_id: str) -> List[PurchaseItem]:
         """
@@ -419,8 +425,7 @@ class StorageManager:
         تحميل جميع دفعات الموردين
         Load all supplier payments
         """
-        payments_file = self.data_folder / "supplier_payments.jsonl"
-        data = read_jsonl(payments_file)
+        data = read_jsonl(self.supplier_payments_file)
         return [SupplierPayment.from_dict(p) for p in data]
     
     def add_supplier_payment(self, payment: SupplierPayment) -> None:
@@ -428,8 +433,7 @@ class StorageManager:
         إضافة دفعة مورد جديدة
         Add new supplier payment
         """
-        payments_file = self.data_folder / "supplier_payments.jsonl"
-        atomic_append_jsonl(payments_file, payment.to_dict())
+        atomic_append_jsonl(self.supplier_payments_file, payment.to_dict())
     
     def get_supplier_payments(self, supplier_id: str) -> List[SupplierPayment]:
         """
@@ -446,8 +450,7 @@ class StorageManager:
         تحميل جميع ملخصات الموردين
         Load all supplier summaries
         """
-        summaries_file = self.data_folder / "supplier_summaries.json"
-        data = read_json(summaries_file, default={})
+        data = read_json(self.supplier_summaries_file, default={})
         return {
             supplier_id: SupplierSummary.from_dict(summary_data)
             for supplier_id, summary_data in data.items()
@@ -458,12 +461,11 @@ class StorageManager:
         حفظ جميع ملخصات الموردين
         Save all supplier summaries
         """
-        summaries_file = self.data_folder / "supplier_summaries.json"
         data = {
             supplier_id: summary.to_dict()
             for supplier_id, summary in summaries.items()
         }
-        atomic_write_json(summaries_file, data)
+        atomic_write_json(self.supplier_summaries_file, data)
     
     def get_supplier_summary(self, supplier_id: str) -> SupplierSummary:
         """
@@ -480,8 +482,7 @@ class StorageManager:
         تحميل جميع الشيكات
         Load all checks
         """
-        checks_file = self.data_folder / "checks.json"
-        data = read_json(checks_file, default=[])
+        data = read_json(self.checks_file, default=[])
         return [Check.from_dict(c) for c in data]
     
     def save_checks(self, checks: List[Check]) -> None:
@@ -489,9 +490,8 @@ class StorageManager:
         حفظ جميع الشيكات
         Save all checks
         """
-        checks_file = self.data_folder / "checks.json"
         data = [c.to_dict() for c in checks]
-        atomic_write_json(checks_file, data)
+        atomic_write_json(self.checks_file, data)
     
     def add_check(self, check: Check) -> None:
         """

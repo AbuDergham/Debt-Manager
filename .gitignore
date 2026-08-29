@@ -38,3 +38,6 @@ data/backups/*.zip
 
 # Ignore logs
 *.log
+
+# pytest
+.pytest_cache/
