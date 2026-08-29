@@ -352,73 +352,57 @@ class CustomersView(QWidget):
         تعديل معلومات العميل
         Edit customer information
         """
-        # الحصول على العميل
-        customers = self.storage.load_customers()
-        customer = next((c for c in customers if c.id == customer_id), None)
-        
+        customer = self.storage.get_customer(customer_id)
         if not customer:
             QMessageBox.warning(self, "خطأ", "لم يتم العثور على العميل")
             return
-        
-        # فتح نافذة التعديل
+
         from .dialogs import EditCustomerDialog
         dialog = EditCustomerDialog(customer, self)
-        
-        if dialog.exec():
-            try:
-                # تحديث العميل في القائمة
-                updated_customer = dialog.updated_customer
-                for i, c in enumerate(customers):
-                    if c.id == customer_id:
-                        customers[i] = updated_customer
-                        break
-                
-                self.storage.save_customers(customers)
-                
-                # إعادة تحميل البيانات
-                self.load_data()
-                
-                QMessageBox.information(
-                    self, "نجح",
-                    f"تم تحديث معلومات العميل '{updated_customer.name}' بنجاح"
-                )
-            except Exception as e:
-                QMessageBox.warning(self, "خطأ", f"فشل في تحديث العميل: {str(e)}")
-    
+
+        if not dialog.exec():
+            return
+
+        try:
+            self.storage.update_customer(dialog.updated_customer)
+            self.load_data()
+            QMessageBox.information(
+                self, "نجح",
+                f"تم تحديث معلومات العميل '{dialog.updated_customer.name}' بنجاح"
+            )
+        except KeyError:
+            QMessageBox.warning(self, "خطأ", "لم يتم العثور على العميل")
+        except Exception as e:
+            QMessageBox.warning(self, "خطأ", f"فشل في تحديث العميل: {str(e)}")
+
     def delete_customer(self, customer_id: str, customer_name: str):
         """
-        حذف العميل
-        Delete customer
+        حذف العميل وجميع حركاته
+        Delete a customer and all their entries
         """
-        # التحقق مع المستخدم
+        entries_count = len(self.storage.get_customer_entries(customer_id))
+
         reply = QMessageBox.question(
             self, "تأكيد الحذف",
-            f"هل أنت متأكد من حذف العميل '{customer_name}'?\n\n"
-            "سيتم حذف جميع إدخالات هذا العميل أيضاً.",
+            f"هل أنت متأكد من حذف العميل '{customer_name}'؟\n\n"
+            f"سيتم حذف {entries_count} حركة من حركاته أيضاً.\n"
+            "تُنشأ نسخة احتياطية تلقائياً قبل الحذف.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
-        if reply == QMessageBox.Yes:
-            # حذف العميل من القائمة
-            customers = self.storage.load_customers()
-            customers = [c for c in customers if c.id != customer_id]
-            self.storage.save_customers(customers)
-            
-            # حذف ملخص العميل
-            summaries = self.storage.load_summaries()
-            if customer_id in summaries:
-                del summaries[customer_id]
-                self.storage.save_summaries(summaries)
-            
-            # ملاحظة: الإدخالات تبقى في entries.jsonl ولكن يمكن تجاهلها
-            # في تطبيق أكثر تقدماً، يمكن إعادة كتابة ملف entries.jsonl بدون إدخالات هذا العميل
-            
-            # إعادة تحميل البيانات
+
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            customer, deleted_count, backup_path = self.storage.delete_customer(customer_id)
             self.load_data()
-            
             QMessageBox.information(
                 self, "نجح",
-                f"تم حذف العميل '{customer_name}' بنجاح"
+                f"تم حذف العميل '{customer.name}' و {deleted_count} حركة.\n\n"
+                f"نسخة احتياطية:\n{backup_path}"
             )
-
+        except KeyError:
+            QMessageBox.warning(self, "خطأ", "لم يتم العثور على العميل")
+        except Exception as e:
+            QMessageBox.warning(self, "خطأ", f"فشل في حذف العميل: {str(e)}")

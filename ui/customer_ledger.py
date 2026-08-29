@@ -661,86 +661,37 @@ class CustomerLedgerView(QWidget):
         # عرض القائمة
         menu.exec(self.table.viewport().mapToGlobal(position))
     
-    def edit_entry(self, entry: Entry, row: int):
+    def edit_entry(self, entry: Entry, row: int = -1):
         """
-        تعديل إدخال موجود
-        Edit existing entry
+        تعديل حركة موجودة
+        Edit an existing entry
         """
         dialog = EditEntryDialog(entry, self.customer.name, self)
-        
-        if dialog.exec():
-            try:
-                # نحتاج لإعادة كتابة ملف entries.jsonl بالكامل
-                # لأن JSONL هو append-only format
-                
-                # تحميل جميع الإدخالات
-                all_entries = self.storage.load_entries()
-                
-                # البحث عن الإدخال القديم وتحديثه
-                found = False
-                for i, e in enumerate(all_entries):
-                    if (e.customer_id == entry.customer_id and
-                        e.date == entry.date and
-                        e.amount == entry.amount and
-                        e.desc == entry.desc):
-                        all_entries[i] = dialog.updated_entry
-                        found = True
-                        break
-                
-                if not found:
-                    QMessageBox.warning(self, "خطأ", "لم يتم العثور على الإدخال")
-                    return
-                
-                # إعادة كتابة ملف entries.jsonl
-                import tempfile
-                import os
-                entries_file = self.storage.data_folder / "entries.jsonl"
-                
-                # كتابة إلى ملف مؤقت
-                fd, temp_path = tempfile.mkstemp(
-                    dir=entries_file.parent,
-                    suffix='.tmp',
-                    text=True
-                )
-                
-                try:
-                    # إغلاق fd فوراً لتجنب file lock
-                    os.close(fd)
-                    
-                    # الكتابة إلى الملف المؤقت
-                    with open(temp_path, 'w', encoding='utf-8') as f:
-                        for e in all_entries:
-                            f.write(json.dumps(e.to_dict(), ensure_ascii=False) + '\n')
-                    
-                    # نقل الملف المؤقت ليحل محل الأصلي
-                    os.replace(temp_path, entries_file)
-                except Exception as ex:
-                    # حذف الملف المؤقت في حالة حدوث خطأ
-                    try:
-                        os.unlink(temp_path)
-                    except:
-                        pass
-                    raise ex
-                
-                # إعادة تحميل البيانات
-                self.load_data()
-                
-                QMessageBox.information(
-                    self, "نجح",
-                    "تم تعديل الإدخال بنجاح"
-                )
-            except Exception as e:
-                QMessageBox.warning(self, "خطأ", f"فشل في تعديل الإدخال: {str(e)}")
-    
+
+        if not dialog.exec():
+            return
+
+        try:
+            updated = dialog.updated_entry
+            # الحوار يبني Entry جديداً فيحصل على معرّف جديد تلقائياً؛
+            # نعيد الهوية الأصلية وإلا فشل التحديث بـ KeyError
+            updated.id = entry.id
+
+            self.storage.update_entry(updated)
+            self.load_data()
+            QMessageBox.information(self, "نجح", "تم تعديل الحركة بنجاح")
+        except KeyError:
+            QMessageBox.warning(self, "خطأ", "لم يتم العثور على الحركة")
+        except Exception as e:
+            QMessageBox.warning(self, "خطأ", f"فشل في تعديل الحركة: {str(e)}")
+
     def delete_entry(self, entry: Entry):
         """
-        حذف إدخال
-        Delete entry
+        حذف حركة
+        Delete an entry
         """
-        # نوع الإدخال للرسالة
         entry_type_ar = "الدين" if entry.type == "purchase" else "الدفعة"
-        
-        # التحقق من المستخدم
+
         reply = QMessageBox.question(
             self, "تأكيد الحذف",
             f"هل أنت متأكد من حذف {entry_type_ar}؟\n\n"
@@ -750,66 +701,15 @@ class CustomerLedgerView(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
-        if reply == QMessageBox.Yes:
-            try:
-                # تحميل جميع الإدخالات
-                all_entries = self.storage.load_entries()
-                
-                # البحث عن الإدخال وحذفه
-                found = False
-                for i, e in enumerate(all_entries):
-                    if (e.customer_id == entry.customer_id and
-                        e.date == entry.date and
-                        e.amount == entry.amount and
-                        e.desc == entry.desc):
-                        all_entries.pop(i)
-                        found = True
-                        break
-                
-                if not found:
-                    QMessageBox.warning(self, "خطأ", "لم يتم العثور على الإدخال")
-                    return
-                
-                # إعادة كتابة ملف entries.jsonl
-                import tempfile
-                import os
-                entries_file = self.storage.data_folder / "entries.jsonl"
-                
-                # كتابة إلى ملف مؤقت
-                fd, temp_path = tempfile.mkstemp(
-                    dir=entries_file.parent,
-                    suffix='.tmp',
-                    text=True
-                )
-                
-                try:
-                    # إغلاق fd فوراً لتجنب file lock
-                    os.close(fd)
-                    
-                    # الكتابة إلى الملف المؤقت
-                    with open(temp_path, 'w', encoding='utf-8') as f:
-                        for e in all_entries:
-                            f.write(json.dumps(e.to_dict(), ensure_ascii=False) + '\n')
-                    
-                    # نقل الملف المؤقت ليحل محل الأصلي
-                    os.replace(temp_path, entries_file)
-                except Exception as ex:
-                    # حذف الملف المؤقت في حالة حدوث خطأ
-                    try:
-                        os.unlink(temp_path)
-                    except:
-                        pass
-                    raise ex
-                
-                # إعادة تحميل البيانات
-                self.load_data()
-                
-                QMessageBox.information(
-                    self, "نجح",
-                    f"تم حذف {entry_type_ar} بنجاح"
-                )
-            except Exception as e:
-                QMessageBox.warning(self, "خطأ", f"فشل في حذف الإدخال: {str(e)}")
 
+        if reply != QMessageBox.Yes:
+            return
 
+        try:
+            self.storage.delete_entry(entry.id)
+            self.load_data()
+            QMessageBox.information(self, "نجح", f"تم حذف {entry_type_ar} بنجاح")
+        except KeyError:
+            QMessageBox.warning(self, "خطأ", "لم يتم العثور على الحركة")
+        except Exception as e:
+            QMessageBox.warning(self, "خطأ", f"فشل في حذف الحركة: {str(e)}")
