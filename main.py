@@ -3,12 +3,15 @@
 Main entry point for the debt management application
 """
 import sys
+from pathlib import Path
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QIcon
 from core.utils import get_base_path
 from core.storage import StorageManager
 from core.migrations import run_migrations
+from core.updater import cleanup_old_exe
+from core.version import __version__
 from ui.main_window import MainWindow
 
 
@@ -22,7 +25,7 @@ def main():
 
     # تعيين الاسم والنسخة
     app.setApplicationName("إدارة ديون العملاء")
-    app.setApplicationVersion("2.1.0")
+    app.setApplicationVersion(__version__)
     app.setOrganizationName("محل الخضار والفواكه")
 
     # تعيين الاتجاه من اليمين إلى اليسار (RTL)
@@ -36,6 +39,11 @@ def main():
     icon_path = get_base_path() / "icon.ico"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
+
+    # حذف نسخة الإصدار السابق المتبقّية من تحديث ناجح.
+    # وصولنا إلى هنا دليلٌ على أن الإصدار الجديد أقلع فعلاً.
+    if getattr(sys, "frozen", False):
+        cleanup_old_exe(Path(sys.executable))
 
     # تهيئة التخزين (تُنشئ مجلد البيانات وملفاته إن لم تكن موجودة)
     storage = StorageManager()
@@ -58,6 +66,9 @@ def main():
     # إنشاء وعرض النافذة الرئيسية
     window = MainWindow(storage)
     window.show()
+
+    # فحص التحديثات في الخلفية — بعد ظهور النافذة، فلا يؤخّر الإقلاع
+    window.start_update_check()
 
     # تشغيل التطبيق
     sys.exit(app.exec())

@@ -9,6 +9,7 @@ from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from core.storage import StorageManager
 from core.backup import create_backup, AutoBackupManager
 from core.utils import hash_password, verify_password
+from core.version import __version__
 from .customers_view import CustomersView
 from .customer_ledger import CustomerLedgerView
 from .dialogs import AppLockDialog
@@ -216,7 +217,14 @@ class MainWindow(QMainWindow):
         
         # قائمة المساعدة
         help_menu = menubar.addMenu("مساعدة")
-        
+
+        # التحقق من التحديثات — يصير مميّزاً عند توفّر إصدار جديد
+        self.update_action = QAction("🔄 التحقق من التحديثات", self)
+        self.update_action.triggered.connect(self.check_for_updates_manually)
+        help_menu.addAction(self.update_action)
+
+        help_menu.addSeparator()
+
         # حول
         about_action = QAction("حول التطبيق", self)
         about_action.triggered.connect(self.show_about)
@@ -606,12 +614,12 @@ class MainWindow(QMainWindow):
             self, "حول التطبيق",
             "<h2>إدارة ديون العملاء</h2>"
             "<p>نظام لإدارة ديون عملاء محل الخضار والفواكه</p>"
-            "<p><b>الإصدار:</b> 2.0.0</p>"
+            f"<p><b>الإصدار:</b> {__version__}</p>"
             "<p><b>المطور:</b> AbuDergham - 0569337729</p>"
             "<hr>"
             "<p>التخزين: ملفات JSON/JSONL محلية</p>"
             "<p>النسخ الاحتياطي: تلقائي ويدوي</p>"
-            "<p>التصدير: CSV, JSON, PDF</p>"
+            "<p>التصدير والطباعة: PDF, Excel, CSV, JSON</p>"
         )
 
     def configure_shop_info(self):
@@ -664,3 +672,76 @@ class MainWindow(QMainWindow):
         self.storage.update_setting("shop_name", name)
         self.storage.update_setting("shop_phone", phone_input.text().strip())
         self.statusBar().showMessage("تم حفظ معلومات المحل", 3000)
+
+    # ============ التحديث التلقائي - Auto-update ============
+
+    def start_update_check(self):
+        """
+        فحص التحديثات في الخلفية عند الإقلاع
+        Check for updates in the background at startup
+
+        لا يعطّل الواجهة، ولا يعرض شيئاً عند الفشل — التطبيق يعمل بلا
+        إنترنت، وصاحب المحل يسجّل ديونه لا يهمّه أن GitHub بعيد.
+        """
+        if not self.storage.get_setting("check_updates", True):
+            return
+
+        from .update_dialog import start_background_check
+        start_background_check(self, self.on_update_found)
+
+    def on_update_found(self, info):
+        """
+        وُجد إصدار أحدث — إشعار هادئ بلا مقاطعة
+        A newer release exists: notify quietly, never interrupt
+        """
+        if info.version == self.storage.get_setting("skipped_version", ""):
+            return
+
+        self.available_update = info
+        self.update_action.setText(f"🔄 تحديث متاح: {info.version}")
+        self.statusBar().showMessage(
+            f"يتوفّر إصدار جديد {info.version} — مساعدة ← التحقق من التحديثات",
+            15000,
+        )
+
+    def check_for_updates_manually(self):
+        """التحقق من التحديثات بطلب المستخدم — هنا نُظهر النتيجة دائماً"""
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import Qt as _Qt
+        from core.updater import check_for_update
+        from core.version import GITHUB_OWNER, GITHUB_REPO, __version__
+        from .update_dialog import UpdateDialog, current_exe_path
+
+        info = getattr(self, "available_update", None)
+
+        if info is None:
+            QApplication.setOverrideCursor(_Qt.WaitCursor)
+            self.statusBar().showMessage("جارٍ التحقق من التحديثات...")
+            try:
+                info = check_for_update(__version__, owner=GITHUB_OWNER,
+                                        repo=GITHUB_REPO, timeout=10.0)
+            finally:
+                QApplication.restoreOverrideCursor()
+                self.statusBar().clearMessage()
+
+        if info is None:
+            QMessageBox.information(
+                self, "لا تحديثات",
+                f"إصدارك {__version__} هو الأحدث.\n\n"
+                "إن كان الجهاز غير متصل بالإنترنت، حاول لاحقاً."
+            )
+            return
+
+        if current_exe_path() is None:
+            QMessageBox.information(
+                self, f"تحديث متاح: {info.version}",
+                f"يتوفّر إصدار {info.version}.\n\n"
+                "التحديث التلقائي يعمل على النسخة التنفيذية فقط — "
+                "أنت تشغّل التطبيق من الكود المصدري."
+            )
+            return
+
+        dialog = UpdateDialog(info, self.storage, self)
+        if dialog.exec():
+            self.update_action.setText("🔄 التحقق من التحديثات")
+            self.available_update = None

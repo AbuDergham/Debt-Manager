@@ -7,7 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[('icon.ico', '.')],
     # الطباعة تُحمَّل عبر Qt، وPyInstaller لا يكتشفها من الاستيراد الكسول
-    hiddenimports=['PySide6.QtPrintSupport'],
+    hiddenimports=['PySide6.QtPrintSupport', 'PySide6.QtNetwork'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
