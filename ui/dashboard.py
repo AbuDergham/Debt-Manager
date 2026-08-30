@@ -2,7 +2,7 @@
 لوحة المعلومات
 Dashboard view with charts and statistics
 """
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QPushButton, QComboBox, QScrollArea, QFrame
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QPushButton, QComboBox, QScrollArea, QFrame, QSizePolicy
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
 from decimal import Decimal
@@ -133,6 +133,8 @@ class DashboardView(QWidget):
         fig = Figure(figsize=(5, 3), dpi=100)
         fig.patch.set_facecolor('#f8f9fa')
         canvas = FigureCanvas(fig)
+        # بلا حدّ أدنى تنهار اللوحة إلى شريط رفيع حين تزدحم الشاشة
+        canvas.setMinimumHeight(240)
         layout.addWidget(canvas)
         
         # تخزين المرجع
@@ -166,31 +168,42 @@ class DashboardView(QWidget):
         return group
     
     def create_stat_card(self, title: str, value: str, color: str) -> QFrame:
-        """إنشاء بطاقة إحصائية"""
+        """
+        إنشاء بطاقة إحصائية
+        Create a statistic card
+
+        البطاقات الخمس تتقلّص لتسع شاشة المحل. بلا سياسة تقلّص كانت تفيض
+        عن عرض النافذة فتُقصّ آخر بطاقة ويظهر شريط تمرير أفقي.
+        """
         card = QFrame()
         card.setStyleSheet(f"""
             QFrame {{
                 background-color: {color};
                 border-radius: 10px;
-                padding: 15px;
+                padding: 10px;
             }}
             QLabel {{
                 background: transparent;
             }}
         """)
-        
+        card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        card.setMinimumWidth(150)
+
         layout = QVBoxLayout(card)
-        
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+
         title_label = QLabel(title)
-        title_label.setFont(QFont("Arial", 11))
+        title_label.setFont(QFont("Arial", 10))
         title_label.setStyleSheet("color: #ffffff;")
+        title_label.setWordWrap(True)
         layout.addWidget(title_label)
-        
+
         value_label = QLabel(value)
-        value_label.setFont(QFont("Arial", 16, QFont.Bold))
+        value_label.setFont(QFont("Arial", 14, QFont.Bold))
         value_label.setStyleSheet("color: #ffffff;")
         layout.addWidget(value_label)
-        
+
         return card
     
     def refresh(self):
@@ -213,50 +226,69 @@ class DashboardView(QWidget):
         self.update_check_alerts()
     
     def update_stats(self, period: str):
-        """تحديث بطاقات الإحصائيات"""
+        """
+        تحديث بطاقات الإحصائيات
+        Refresh the statistic cards
+
+        البطاقات تُبنى لكل الفترات. كانت الحلقة داخل فرع «else» فلا تُنفَّذ
+        إلا للفترة «الكل»، والافتراضي «اليوم» — فكان صف الإحصاءات فارغاً
+        في الاستعمال العادي. وكان period_label يُقرأ في فرع لا يعرّفه،
+        فترمي الفترة «الكل» UnboundLocalError.
+        """
         # مسح البطاقات القديمة
         while self.stats_layout.count():
             item = self.stats_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        
-        # الحصول على الإحصائيات الإجمالية
-        stats = self.analytics.get_total_stats()
-        
-        # تصفية البيانات حسب الفترة إذا لم تكن "الكل"
-        if period != "all":
-            entries = self.storage.load_entries()
-            now = datetime.now()
-            
-            if period == "today":
-                filtered_entries = [e for e in entries if e.datetime.date() == now.date()]
-                period_label = "اليوم"
-            elif period == "month":
-                filtered_entries = [e for e in entries if e.datetime.year == now.year and e.datetime.month == now.month]
-                period_label = "هذا الشهر"
-            else:  # year
-                filtered_entries = [e for e in entries if e.datetime.year == now.year]
-                period_label = "هذه السنة"
-            
-            # حساب الإحصائيات للفترة المحددة
-            period_sales = sum(e.amount_decimal for e in filtered_entries if e.type == "purchase")
-            period_payments = sum(e.amount_decimal for e in filtered_entries if e.type == "payment")
-        else:
-            # الحصول على الإحصائيات الشاملة من التحليلات
-            dash_summary = self.analytics.get_dashboard_summary()
-            
-            # بطاقات الإحصائيات (تعديل لعرض معلومات الموردين والشيكات)
-            cards = [
-                ("👥 أرصدة العملاء (لنا)", format_currency(dash_summary["customer_balance"]), "#10b981"),
-                ("🏭 أرصدة الموردين (علينا)", format_currency(dash_summary["supplier_balance"]), "#ef4444"),
-                (f"💵 مبيعات {period_label}", format_currency(period_sales), "#3b82f6"),
-                (f"🛒 مشتريات (اليوم)", format_currency(dash_summary["today_purchases"]), "#f59e0b"),
-                ("⏳ شيكات معلقة", str(dash_summary["checks_pending_count"]), "#6366f1"),
-            ]
-            
-            for title, value, color in cards:
-                card = self.create_stat_card(title, value, color)
-                self.stats_layout.addWidget(card)
+
+        summary = self.analytics.get_dashboard_summary()
+        period_sales, period_label = self._period_sales(period)
+
+        cards = [
+            ("👥 أرصدة العملاء (لنا)",
+             format_currency(summary["customer_balance"]), "#10b981"),
+            ("🏭 أرصدة الموردين (علينا)",
+             format_currency(summary["supplier_balance"]), "#ef4444"),
+            (f"💵 مبيعات {period_label}",
+             format_currency(period_sales), "#3b82f6"),
+            ("🛒 مشتريات اليوم",
+             format_currency(summary["today_purchases"]), "#f59e0b"),
+            ("⏳ شيكات معلقة",
+             str(summary["checks_pending_count"]), "#6366f1"),
+        ]
+
+        for title, value, color in cards:
+            self.stats_layout.addWidget(self.create_stat_card(title, value, color))
+
+    def _period_sales(self, period: str):
+        """
+        مبيعات الفترة المختارة واسمها
+        Sales for the selected period, and its Arabic label
+
+        Returns:
+            (المبيعات، اسم الفترة)
+        """
+        if period == "all":
+            return self.analytics.get_total_stats()["total_sales"], "الإجمالي"
+
+        now = datetime.now()
+        entries = self.storage.load_entries()
+
+        if period == "today":
+            selected = [e for e in entries if e.datetime.date() == now.date()]
+            label = "اليوم"
+        elif period == "month":
+            selected = [e for e in entries
+                        if e.datetime.year == now.year
+                        and e.datetime.month == now.month]
+            label = "هذا الشهر"
+        else:  # year
+            selected = [e for e in entries if e.datetime.year == now.year]
+            label = "هذه السنة"
+
+        total = sum((e.amount_decimal for e in selected if e.type == "purchase"),
+                    Decimal("0.00"))
+        return total, label
     
     def update_sales_chart(self, period: str):
         """تحديث رسم المبيعات"""
