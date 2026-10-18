@@ -25,11 +25,15 @@ class MainWindow(QMainWindow):
     Main application window
     """
     
-    def __init__(self, storage: StorageManager = None):
+    def __init__(self, storage: StorageManager = None, disabled=None):
         super().__init__()
 
         # مدير التخزين — يمرَّر من main.py بعد تشغيل الترحيل
         self.storage = storage if storage is not None else StorageManager()
+
+        # أقسام مُعطَّلة بسبب ملفات بيانات تالفة (من core.integrity).
+        # تعمل بقية الشاشات بشكل طبيعي، مع تحذير ظاهر لا تعطيل صامت.
+        self.disabled_sections = set(disabled or ())
         
         # مدير النسخ الاحتياطي التلقائي
         auto_backup_interval = self.storage.get_setting("auto_backup_interval", 200)
@@ -48,6 +52,9 @@ class MainWindow(QMainWindow):
         self.setup_ui()
         self.setup_menu()
         
+        # تعطيل أقسام ملفاتها تالفة (يحتاج القوائم مبنيّة)
+        self.apply_disabled_sections()
+
         # تطبيق الTheme
         self.apply_theme()
         
@@ -98,24 +105,31 @@ class MainWindow(QMainWindow):
         self.ledger_view.back_requested.connect(self.show_customers_view)
         self.stack.addWidget(self.ledger_view)
         
-        # صفحة قائمة الموردين
-        self.suppliers_view = SuppliersView(self.storage, self)
-        self.suppliers_view.supplier_selected.connect(self.show_supplier_ledger)
-        self.suppliers_view.back_requested.connect(self.show_customers_view)
-        self.stack.addWidget(self.suppliers_view)
-        
-        # صفحة حساب المورد (يُنشأ ديناميكياً)
+        # صفحة حساب المورد (تُنشأ ديناميكياً)
         self.supplier_ledger_view = None
-        
-        # صفحة فواتير الشراء
-        self.purchase_order_view = PurchaseOrderView(self.storage, self)
-        self.purchase_order_view.back_requested.connect(self.show_customers_view)
-        self.stack.addWidget(self.purchase_order_view)
-        
-        # صفحة الشيكات
-        self.checks_view = ChecksView(self.storage, self)
-        self.checks_view.back_requested.connect(self.show_customers_view)
-        self.stack.addWidget(self.checks_view)
+
+        # شاشات الموردين لا تُبنى أصلاً إن كان ملف من ملفاتها تالفاً:
+        # بنّاؤها يقرأ الملف فينهار، فحارس التنقّل وحده لا يكفي.
+        if "suppliers" in self.disabled_sections:
+            self.suppliers_view = None
+            self.purchase_order_view = None
+            self.checks_view = None
+        else:
+            # صفحة قائمة الموردين
+            self.suppliers_view = SuppliersView(self.storage, self)
+            self.suppliers_view.supplier_selected.connect(self.show_supplier_ledger)
+            self.suppliers_view.back_requested.connect(self.show_customers_view)
+            self.stack.addWidget(self.suppliers_view)
+
+            # صفحة فواتير الشراء
+            self.purchase_order_view = PurchaseOrderView(self.storage, self)
+            self.purchase_order_view.back_requested.connect(self.show_customers_view)
+            self.stack.addWidget(self.purchase_order_view)
+
+            # صفحة الشيكات
+            self.checks_view = ChecksView(self.storage, self)
+            self.checks_view.back_requested.connect(self.show_customers_view)
+            self.stack.addWidget(self.checks_view)
         
         # شريط الحالة
         self.statusBar().showMessage("جاهز")
@@ -134,7 +148,13 @@ class MainWindow(QMainWindow):
         backup_action = QAction("إنشاء نسخة احتياطية", self)
         backup_action.triggered.connect(self.create_manual_backup)
         file_menu.addAction(backup_action)
-        
+
+        # استعادة نسخة احتياطية
+        restore_action = QAction("♻️ استعادة نسخة احتياطية", self)
+        restore_action.triggered.connect(self.restore_backup_dialog)
+        file_menu.addAction(restore_action)
+
+
         # تصدير جميع البيانات
         export_action = QAction("تصدير جميع البيانات", self)
         export_action.triggered.connect(self.export_all_data)
@@ -165,19 +185,19 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         
         # الموردون
-        suppliers_action = QAction("🏭 الموردون", self)
+        self.suppliers_action = suppliers_action = QAction("🏭 الموردون", self)
         suppliers_action.setShortcut(QKeySequence("Ctrl+M"))
         suppliers_action.triggered.connect(self.show_suppliers_view)
         view_menu.addAction(suppliers_action)
         
         # فواتير الشراء
-        purchases_action = QAction("🧾 فواتير الشراء", self)
+        self.purchases_action = purchases_action = QAction("🧾 فواتير الشراء", self)
         purchases_action.setShortcut(QKeySequence("Ctrl+P"))
         purchases_action.triggered.connect(self.show_purchase_orders)
         view_menu.addAction(purchases_action)
         
         # الشيكات
-        checks_action = QAction("💳 الشيكات", self)
+        self.checks_action = checks_action = QAction("💳 الشيكات", self)
         checks_action.setShortcut(QKeySequence("Ctrl+K"))
         checks_action.triggered.connect(self.show_checks)
         view_menu.addAction(checks_action)
@@ -328,6 +348,9 @@ class MainWindow(QMainWindow):
     
     def show_suppliers_view(self):
         """عرض صفحة قائمة الموردين"""
+        if self.section_disabled("suppliers"):
+            return
+
         self.suppliers_view.load_data()
         self.stack.setCurrentWidget(self.suppliers_view)
         self.statusBar().showMessage("قائمة الموردين - Ctrl+H للعودة للعملاء")
@@ -348,12 +371,18 @@ class MainWindow(QMainWindow):
     
     def show_purchase_orders(self):
         """عرض صفحة فواتير الشراء"""
+        if self.section_disabled("suppliers"):
+            return
+
         self.purchase_order_view.refresh()
         self.stack.setCurrentWidget(self.purchase_order_view)
         self.statusBar().showMessage("فواتير الشراء - Ctrl+H للعودة للعملاء")
     
     def show_checks(self):
         """عرض صفحة الشيكات"""
+        if self.section_disabled("suppliers"):
+            return
+
         self.checks_view.refresh()
         self.stack.setCurrentWidget(self.checks_view)
         self.statusBar().showMessage("نظام الشيكات - Ctrl+H للعودة للعملاء")
@@ -745,3 +774,44 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.update_action.setText("🔄 التحقق من التحديثات")
             self.available_update = None
+
+    # ============ سلامة البيانات والاستعادة - Integrity & restore ============
+
+    def restore_backup_dialog(self):
+        """فتح نافذة استعادة نسخة احتياطية"""
+        from .restore_dialog import RestoreBackupDialog
+
+        if RestoreBackupDialog(self.storage, self).exec():
+            self.close()
+
+    def apply_disabled_sections(self):
+        """
+        تعطيل شاشات الأقسام التي تعذّرت قراءة ملفاتها
+        Disable sections whose data files could not be read
+
+        التعطيل **ظاهر دائماً**: أرصدة الموردين تُحسب من الشيكات ومن بنود
+        الشراء، فتعطيل صامت يعني عرض أرقام غلط بلا أن يدري المستخدم.
+        """
+        if "suppliers" not in self.disabled_sections:
+            return
+
+        for action in (self.suppliers_action, self.purchases_action,
+                       self.checks_action):
+            action.setEnabled(False)
+            action.setText(action.text() + "  (معطّل — ملف تالف)")
+
+        self.statusBar().showMessage(
+            "⚠️ تعذّرت قراءة أحد ملفات الموردين — شاشات الموردين والشيكات "
+            "وفواتير الشراء معطّلة. ملف ← استعادة نسخة احتياطية."
+        )
+
+    def section_disabled(self, name: str) -> bool:
+        """هل هذا القسم معطّل؟ يمنع فتحه عبر اختصار لوحة المفاتيح أيضاً"""
+        if name not in self.disabled_sections:
+            return False
+        QMessageBox.warning(
+            self, "القسم معطّل",
+            "تعذّرت قراءة أحد ملفات هذا القسم، فعُطّل حتى لا تظهر أرقام خاطئة.\n\n"
+            "جرّب: ملف ← استعادة نسخة احتياطية."
+        )
+        return True

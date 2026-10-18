@@ -6,7 +6,7 @@ Application version and repository info
 main.py قال 2.1.0 ونافذة «حول» قالت 2.0.0.
 """
 
-__version__ = "2.2.1"
+__version__ = "2.3.0"
 
 # مستودع GitHub الذي تُنشر عليه الإصدارات
 GITHUB_OWNER = "AbuDergham"

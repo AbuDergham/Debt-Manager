@@ -19,15 +19,22 @@ from .table_items import HeaderSortController
 class AddCheckDialog(QDialog):
     """نافذة إضافة شيك جديد"""
     
-    def __init__(self, suppliers, parent=None):
+    def __init__(self, suppliers, parent=None, existing=None):
+        """
+        Args:
+            existing: شيك موجود لتعديله، أو None لإضافة شيك جديد
+        """
         super().__init__(parent)
         self.suppliers = suppliers
-        self.setWindowTitle("إضافة شيك جديد")
+        self.existing = existing
+        self.setWindowTitle("تعديل شيك" if existing else "إضافة شيك جديد")
         self.setModal(True)
         self.setMinimumWidth(450)
         self.setup_ui()
-        
+
         self.check = None
+        if existing is not None:
+            self._load_existing(existing)
     
     def setup_ui(self):
         """إعداد الواجهة"""
@@ -121,6 +128,29 @@ class AddCheckDialog(QDialog):
             self.party_name_input.hide()
             self.party_name_label.hide()
     
+    def _load_existing(self, check):
+        """تعبئة الحقول ببيانات شيك موجود"""
+        from PySide6.QtCore import QDate
+
+        self.check_number_input.setText(check.check_number)
+        self.bank_input.setText(check.bank_name)
+        self.amount_input.setText(check.amount)
+        self.notes_input.setPlainText(check.notes or "")
+
+        index = self.direction_combo.findData(check.direction)
+        if index >= 0:
+            self.direction_combo.setCurrentIndex(index)
+
+        index = self.party_combo.findData(check.party_id or "other")
+        if index >= 0:
+            self.party_combo.setCurrentIndex(index)
+        if check.party_type == "other":
+            self.party_name_input.setText(check.party_name)
+
+        for widget, value in ((self.issue_date_edit, check.issue_datetime),
+                              (self.due_date_edit, check.due_datetime)):
+            widget.setDate(QDate(value.year, value.month, value.day))
+
     def accept(self):
         """التحقق والحفظ"""
         check_number = self.check_number_input.text().strip()
@@ -164,21 +194,31 @@ class AddCheckDialog(QDialog):
         due_date = self.due_date_edit.date().toPython()
         notes = self.notes_input.toPlainText().strip()
         
-        self.check = Check(
-            id=generate_check_id(),
+        candidate = Check(
+            # التعديل يحافظ على المعرّف والحالة؛ الإضافة تولّد معرّفاً جديداً
+            id=self.existing.id if self.existing else generate_check_id(),
             check_number=check_number,
             bank_name=bank,
             amount=f"{amount:.2f}",
             issue_date=datetime(issue_date.year, issue_date.month, issue_date.day).isoformat(),
             due_date=datetime(due_date.year, due_date.month, due_date.day).isoformat(),
-            status="pending",
+            status=self.existing.status if self.existing else "pending",
             direction=direction,
             party_type=party_type,
             party_id=party_id if party_id != "other" else "",
             party_name=party_name,
             notes=notes
         )
-        
+
+        # يمنع إدخال شيك استحقاقه قبل إصداره — وهو ما حدث فعلاً في بيانات
+        # المحل ولم يكن هناك ما يصلحه من داخل البرنامج
+        try:
+            candidate.validate()
+        except ValueError as e:
+            QMessageBox.warning(self, "بيانات غير صالحة", str(e))
+            return
+
+        self.check = candidate
         super().accept()
 
 
@@ -276,7 +316,10 @@ class ChecksView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_context_menu)
+
         layout.addWidget(self.table)
     
     def _create_stat_card(self, title: str, value: str, color: str) -> QFrame:
@@ -520,3 +563,87 @@ class ChecksView(QWidget):
     def refresh(self):
         """تحديث البيانات"""
         self.load_data()
+
+    def show_context_menu(self, position):
+        """
+        قائمة النقر بالزر الأيمن على شيك
+        Right-click menu for a check
+
+        وجودها هو ما يمنع المستخدم من فتح checks.json بمحرّر نصوص.
+        """
+        from PySide6.QtGui import QAction
+        from PySide6.QtWidgets import QMenu
+
+        row = self.table.rowAt(position.y())
+        if row < 0:
+            return
+
+        item = self.table.item(row, 0)
+        if item is None:
+            return
+
+        check = self.storage.get_check(item.data(Qt.UserRole))
+        if check is None:
+            return
+
+        menu = QMenu(self)
+
+        edit_action = QAction("✏️ تعديل الشيك", self)
+        edit_action.triggered.connect(lambda: self.edit_check(check.id))
+        menu.addAction(edit_action)
+
+        menu.addSeparator()
+
+        delete_action = QAction("🗑️ حذف الشيك", self)
+        delete_action.triggered.connect(lambda: self.delete_check(check.id))
+        menu.addAction(delete_action)
+
+        menu.exec(self.table.viewport().mapToGlobal(position))
+
+    def edit_check(self, check_id: str):
+        """تعديل بيانات شيك موجود"""
+        check = self.storage.get_check(check_id)
+        if check is None:
+            QMessageBox.warning(self, "خطأ", "لم يتم العثور على الشيك")
+            return
+
+        dialog = AddCheckDialog(self.storage.load_suppliers(), self, existing=check)
+        if not dialog.exec():
+            return
+
+        try:
+            self.storage.update_check(dialog.check)
+            self.load_data()
+            QMessageBox.information(self, "نجح", "تم تعديل الشيك بنجاح")
+        except KeyError:
+            QMessageBox.warning(self, "خطأ", "لم يتم العثور على الشيك")
+        except Exception as e:
+            QMessageBox.warning(self, "خطأ", f"فشل في تعديل الشيك: {str(e)}")
+
+    def delete_check(self, check_id: str):
+        """حذف شيك"""
+        check = self.storage.get_check(check_id)
+        if check is None:
+            QMessageBox.warning(self, "خطأ", "لم يتم العثور على الشيك")
+            return
+
+        reply = QMessageBox.question(
+            self, "تأكيد الحذف",
+            f"هل أنت متأكد من حذف الشيك رقم {check.check_number}؟\n\n"
+            f"البنك: {check.bank_name}\n"
+            f"المبلغ: {format_currency(check.amount_decimal)}\n"
+            f"الجهة: {check.party_name}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            self.storage.delete_check(check_id)
+            self.load_data()
+            QMessageBox.information(self, "نجح", "تم حذف الشيك بنجاح")
+        except KeyError:
+            QMessageBox.warning(self, "خطأ", "لم يتم العثور على الشيك")
+        except Exception as e:
+            QMessageBox.warning(self, "خطأ", f"فشل في حذف الشيك: {str(e)}")

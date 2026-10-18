@@ -468,6 +468,47 @@ class Check:
     def issue_datetime(self) -> datetime:
         """الحصول على تاريخ الإصدار كـ datetime"""
         return datetime.fromisoformat(self.issue_date)
+
+    def validate(self) -> bool:
+        """
+        التحقق من صحة بيانات الشيك
+        Validate check data
+
+        وُجد في بيانات محل حقيقي شيك تاريخ استحقاقه **قبل** تاريخ إصداره،
+        فلم يكن هناك ما يمنع إدخاله — ولا ما يصلحه من داخل البرنامج.
+
+        Raises:
+            ValueError: إذا كانت البيانات غير صالحة
+        """
+        if not self.check_number.strip():
+            raise ValueError("رقم الشيك مطلوب")
+
+        if self.status not in ("pending", "cashed", "bounced"):
+            raise ValueError(f"حالة شيك غير معروفة: {self.status}")
+
+        if self.direction not in ("incoming", "outgoing"):
+            raise ValueError(f"اتجاه شيك غير معروف: {self.direction}")
+
+        try:
+            amount = self.amount_decimal
+        except Exception as e:
+            raise ValueError(f"المبلغ غير صالح: {self.amount}") from e
+
+        if amount <= 0:
+            raise ValueError(f"المبلغ يجب أن يكون أكبر من صفر: {self.amount}")
+
+        try:
+            issued, due = self.issue_datetime, self.due_datetime
+        except ValueError as e:
+            raise ValueError("تاريخ غير صالح في الشيك") from e
+
+        if due < issued:
+            raise ValueError(
+                "تاريخ الاستحقاق لا يصح أن يسبق تاريخ الإصدار "
+                f"({due.date()} قبل {issued.date()})"
+            )
+
+        return True
     
     @property
     def due_datetime(self) -> datetime:

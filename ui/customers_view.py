@@ -391,8 +391,11 @@ class CustomersView(QWidget):
 
         reply = QMessageBox.question(
             self, "تأكيد الحذف",
-            f"هل أنت متأكد من حذف العميل '{customer_name}'؟\n\n"
-            f"سيتم حذف {entries_count} حركة من حركاته أيضاً.\n"
+            f"هل أنت متأكد من حذف العميل «{customer_name}»؟\n\n"
+            f"سيُحذف معه {entries_count} حركة — كل دفتر حسابه.\n\n"
+            "⚠️ إعادة كتابة الاسم لاحقاً تُنشئ عميلاً جديداً فارغاً، "
+            "ولا تُرجع الحركات.\n"
+            "للرجوع: ملف ← استعادة نسخة احتياطية.\n\n"
             "تُنشأ نسخة احتياطية تلقائياً قبل الحذف.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No

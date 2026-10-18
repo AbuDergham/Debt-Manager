@@ -66,7 +66,8 @@ class AuditManager:
         """تحميل جميع سجلات التدقيق"""
         entries = []
         if self.audit_file.exists():
-            with open(self.audit_file, 'r', encoding='utf-8') as f:
+            # utf-8-sig للقراءة فقط — يتحمّل علامة BOM من محرّر خارجي
+            with open(self.audit_file, 'r', encoding='utf-8-sig') as f:
                 for line in f:
                     line = line.strip()
                     if line:

@@ -2,6 +2,7 @@
 نظام النسخ الاحتياطي
 Backup system
 """
+import shutil
 import zipfile
 from pathlib import Path
 from datetime import datetime
@@ -48,23 +49,43 @@ def create_backup(
     return backup_path
 
 
-def restore_backup(backup_path: Path) -> None:
+def restore_backup(backup_path: Path,
+                   data_folder: Optional[Path] = None) -> list[str]:
     """
     استعادة نسخة احتياطية
-    Restore from backup
-    
+    Restore from a backup
+
+    تُستخرج **فقط** الملفات المعروفة في DATA_FILES، باسمها المجرّد.
+    `extractall` على أرشيف أياً كان مصدره يسمح بمسارات مثل `..\\..\\x`
+    فتُكتب ملفات خارج مجلد البيانات؛ القائمة البيضاء تمنع ذلك.
+
     Args:
         backup_path: مسار ملف ZIP الاحتياطي
+        data_folder: مجلد الوجهة (للاختبارات)
+
+    Returns:
+        أسماء الملفات التي استُعيدت فعلاً
     """
-    data_folder = get_data_folder()
+    target = Path(data_folder) if data_folder is not None else get_data_folder()
     backup_path = Path(backup_path)
-    
+
     if not backup_path.exists():
         raise FileNotFoundError(f"Backup file not found: {backup_path}")
-    
-    # استخراج الملفات
+
+    known = {filename for filename, _ in DATA_FILES.values()}
+    restored = []
+
     with zipfile.ZipFile(backup_path, 'r') as zipf:
-        zipf.extractall(data_folder)
+        for member in zipf.namelist():
+            # الاسم المجرّد فقط — يتجاهل أي مسار داخل الأرشيف
+            name = Path(member).name
+            if name not in known or member.endswith('/'):
+                continue
+            with zipf.open(member) as src, open(target / name, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+            restored.append(name)
+
+    return restored
 
 
 def list_backups(backup_folder: Optional[Path] = None) -> list[Path]:
@@ -155,7 +176,6 @@ def export_all_data(export_path: Path) -> Path:
         temp_backup = create_backup()
         
         # نقل الملف إلى الموقع المطلوب
-        import shutil
         shutil.move(str(temp_backup), str(export_path))
         
         return export_path
@@ -165,7 +185,6 @@ def export_all_data(export_path: Path) -> Path:
         
         data_folder = get_data_folder()
 
-        import shutil
         for filename, _ in DATA_FILES.values():
             src = data_folder / filename
             if src.exists():

@@ -5,6 +5,7 @@ Storage layer with atomic file operations
 import json
 import os
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from .models import (
@@ -94,7 +95,11 @@ def read_json(path: Path, default: Any = None) -> Any:
         return default
     
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        # utf-8-sig يقرأ الملفات بعلامة BOM وبدونها بنفس النتيجة.
+        # حادثة واقعية: محرّر نصوص خارجي أضاف BOM إلى checks.json فمات
+        # التطبيق عند الإقلاع، رغم أن المحتوى كان JSON صالحاً تماماً.
+        # للقراءة فقط — استعماله في الكتابة يضيف BOM لكل الملفات.
+        with open(path, 'r', encoding='utf-8-sig') as f:
             return json.load(f)
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON in {path}: {e}")
@@ -139,7 +144,9 @@ def read_jsonl(path: Path) -> List[Dict[str, Any]]:
         return []
     
     records = []
-    with open(path, 'r', encoding='utf-8') as f:
+    # utf-8-sig: يتحمّل علامة BOM التي قد يضيفها محرّر نصوص خارجي.
+    # للقراءة فقط — الكتابة تبقى utf-8 بلا BOM.
+    with open(path, 'r', encoding='utf-8-sig') as f:
         for line_num, line in enumerate(f, 1):
             line = line.strip()
             if not line:
@@ -558,6 +565,8 @@ class StorageManager:
         إضافة شيك جديد
         Add new check
         """
+        check.validate()
+
         checks = self.load_checks()
         checks.append(check)
         self.save_checks(checks)
@@ -566,27 +575,29 @@ class StorageManager:
     def update_check_status(self, check_id: str, new_status: str) -> bool:
         """
         تحديث حالة شيك
-        Update check status
-        Returns True if found and updated
+        Update a check's status
+
+        كانت هذه الدالة تكتب checks.json **بلا تسجيل في سجل التدقيق**،
+        بخلاف كل عمليات التعديل الأخرى — فثغرة في التتبّع. صارت تسجّل.
+
+        Returns:
+            True إن وُجد الشيك وتغيّرت حالته
+
+        Raises:
+            ValueError: إذا كانت الحالة غير معروفة
         """
+        if new_status not in ("pending", "cashed", "bounced"):
+            raise ValueError(f"حالة شيك غير معروفة: {new_status}")
+
         checks = self.load_checks()
         for i, check in enumerate(checks):
             if check.id == check_id:
-                checks[i] = Check(
-                    id=check.id,
-                    check_number=check.check_number,
-                    bank_name=check.bank_name,
-                    amount=check.amount,
-                    issue_date=check.issue_date,
-                    due_date=check.due_date,
-                    status=new_status,
-                    direction=check.direction,
-                    party_type=check.party_type,
-                    party_id=check.party_id,
-                    party_name=check.party_name,
-                    notes=check.notes
-                )
+                old_data = check.to_dict()
+                updated = replace(check, status=new_status)
+                checks[i] = updated
                 self.save_checks(checks)
+                self._log("update", "check", check_id,
+                          old_data=old_data, new_data=updated.to_dict())
                 return True
         return False
     
@@ -927,6 +938,8 @@ class StorageManager:
         Raises:
             KeyError: إذا لم يوجد شيك بهذا المعرّف
         """
+        check.validate()
+
         checks = self.load_checks()
         for i, existing in enumerate(checks):
             if existing.id == check.id:

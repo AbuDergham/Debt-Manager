@@ -12,7 +12,47 @@ from core.storage import StorageManager
 from core.migrations import run_migrations
 from core.updater import cleanup_old_exe
 from core.version import __version__
+from core.integrity import (
+    check_data_files, disabled_sections, has_critical_problem, summary_arabic
+)
 from ui.main_window import MainWindow
+
+
+def handle_data_problems(problems, storage) -> bool:
+    """
+    إبلاغ المستخدم بملفات تالفة، وعرض الاستعادة من نسخة احتياطية
+    Report unreadable files and offer restoring from a backup
+
+    Returns:
+        True إن جاز متابعة التشغيل، False إن وجب الخروج
+    """
+    from ui.restore_dialog import RestoreBackupDialog
+
+    critical = has_critical_problem(problems)
+    body = summary_arabic(problems)
+
+    box = QMessageBox()
+    box.setIcon(QMessageBox.Critical if critical else QMessageBox.Warning)
+    box.setWindowTitle("مشكلة في ملفات البيانات")
+    box.setText(body)
+    box.setDetailedText("\n\n".join(f"{p.filename}\n{p.detail}" for p in problems))
+
+    restore_btn = box.addButton("استعادة نسخة احتياطية", QMessageBox.AcceptRole)
+    if critical:
+        box.addButton("خروج", QMessageBox.RejectRole)
+    else:
+        box.addButton("متابعة بدون هذه الشاشات", QMessageBox.RejectRole)
+
+    box.exec()
+
+    if box.clickedButton() is restore_btn:
+        if RestoreBackupDialog(storage).exec():
+            QMessageBox.information(
+                None, "تمت الاستعادة",
+                "تمت استعادة البيانات.\nأغلق البرنامج وافتحه من جديد.")
+        return False      # إعادة التشغيل مطلوبة في الحالتين
+
+    return not critical
 
 
 def main():
@@ -63,8 +103,14 @@ def main():
     if report.ran and (report.total_ids_added or report.total_orphans_removed):
         QMessageBox.information(None, "تحديث البيانات", report.summary_arabic())
 
+    # فحص سلامة الملفات قبل بناء الواجهة.
+    # بدونه كان ملف واحد تالف يُسقط التطبيق كله برسالة إنجليزية.
+    problems = check_data_files(storage)
+    if problems and not handle_data_problems(problems, storage):
+        sys.exit(1)
+
     # إنشاء وعرض النافذة الرئيسية
-    window = MainWindow(storage)
+    window = MainWindow(storage, disabled=disabled_sections(problems))
     window.show()
 
     # فحص التحديثات في الخلفية — بعد ظهور النافذة، فلا يؤخّر الإقلاع
